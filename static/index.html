@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>مساعد البرمجة بالذكاء الاصطناعي</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="layout">
+    <header class="header">
+      <div>
+        <h1>مساعد البرمجة بالذكاء الاصطناعي</h1>
+        <p>
+          اختر مشروعًا، افحصه، راجع المشاكل، اطلب إصلاحًا، شاهد الفرق، ثم وافق على التطبيق.
+        </p>
+      </div>
+
+      <div class="status-card">
+        <span class="label">الحالة الحالية</span>
+        <strong id="currentStatus">جاهز</strong>
+      </div>
+    </header>
+
+    <section class="stepper card">
+      <h2>مسار العمل</h2>
+      <div id="workflowSteps" class="steps"></div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>1. اختيار المشروع</h2>
+
+        <div id="projectSelectionArea">
+          <label for="projectSelect">المشروع</label>
+          <select id="projectSelect"></select>
+          <button id="confirmProjectButton">تأكيد المشروع</button>
+        </div>
+
+        <div id="selectedProjectArea" class="hidden">
+          <p>
+            المشروع المختار:
+            <strong id="selectedProjectText"></strong>
+          </p>
+          <button id="changeProjectButton">تغيير المشروع</button>
+          <button id="scanProjectButton">افحص المشروع</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>سجل النشاط</h2>
+        <div id="activityLog" class="log">
+          لم يبدأ أي إجراء بعد.
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. نتائج أدوات الفحص</h2>
+      <div id="toolRunsBox" class="box muted">
+        لم يتم الفحص بعد.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. المشاكل المكتشفة</h2>
+      <div id="issuesBox" class="box muted">
+        لا توجد مشاكل معروضة بعد.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4. خطة الإصلاح</h2>
+      <div id="repairPlanBox" class="box muted">
+        اختر مشكلة أولًا ثم اطلب اقتراح الإصلاح.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5. عرض الفرق (Diff)</h2>
+      <div id="diffBox" class="box muted">
+        لم يتم بناء الفرق بعد.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>6. النتيجة النهائية</h2>
+      <div id="finalResultBox" class="box muted">
+        لم يتم تطبيق أي تعديل بعد.
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

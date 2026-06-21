@@ -1,0 +1,13 @@
+Analyze the current AI Coding Assistant project structure.
+
+I want to know:
+- what files are important
+- what seems missing
+- what should be built next
+- whether the project is ready for LangGraph or not
+
+Project context:
+- Windows
+- PowerShell
+- Python virtual environment is active
+- The current project is Ai-Agent-Coding-Assisstant

@@ -1,0 +1,10 @@
+fastapi[standard]
+pydantic
+pydantic-settings
+python-dotenv
+httpx
+ruff
+pytest
+langchain
+langchain-openai
+langgraph
