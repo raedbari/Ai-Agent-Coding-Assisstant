@@ -17,3 +17,4 @@ class AgentState(TypedDict, total=False):
 
     repair_plan: dict[str, Any]
     error: str
+

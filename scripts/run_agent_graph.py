@@ -37,16 +37,17 @@ def main() -> None:
     result = graph.invoke(
         {
             "problem": problem,
+            "project_path": str(PROJECT_ROOT),
         }
     )
 
-    print(result.get("context_report", ""))
+    context_report = result.get("context_report", "")
+    repair_plan = result.get("repair_plan")
 
-    print(json.dumps(
-        result["repair_plan"],
-        indent=2,
-        ensure_ascii=False,
-    ))
+    if context_report:
+        print(context_report)
+
+    print(json.dumps(repair_plan, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

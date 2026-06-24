@@ -21,14 +21,39 @@ def resolve_project_file(project_root: Path, file_path: str) -> Path:
 
 def parse_replace_instruction(instructions: str) -> tuple[str, str] | None:
     patterns = [
+        # Replace 'old' with 'new'
         r"Replace\s+'([^']+)'\s+with\s+'([^']+)'",
         r'Replace\s+"([^"]+)"\s+with\s+"([^"]+)"',
+        r"Replace\s+`([^`]+)`\s+with\s+`([^`]+)`",
+
+        # change 'old' to 'new'
+        r"change\s+'([^']+)'\s+to\s+'([^']+)'",
+        r'change\s+"([^"]+)"\s+to\s+"([^"]+)"',
+        r"change\s+`([^`]+)`\s+to\s+`([^`]+)`",
+
+        # Change X -> Y
+        r"change\s+`([^`]+)`\s*->\s*`([^`]+)`",
+        r"replace\s+`([^`]+)`\s*->\s*`([^`]+)`",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, instructions, flags=re.IGNORECASE)
         if match:
             return match.group(1), match.group(2)
+
+    return None
+
+
+def parse_target_line(instructions: str) -> int | None:
+    patterns = [
+        r"\bline\s+(\d+)\b",
+        r"\bon\s+line\s+(\d+)\b",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, instructions, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
 
     return None
 
@@ -80,7 +105,6 @@ def replace_function_by_name(
     end_index = target_node.end_lineno
 
     replacement_lines = replacement_snippet.strip().splitlines()
-
     replacement_text = "\n".join(replacement_lines) + "\n"
 
     new_lines = (
@@ -92,25 +116,110 @@ def replace_function_by_name(
     return "".join(new_lines)
 
 
+def replace_line_by_number(
+    original_content: str,
+    line_number: int,
+    replacement_line: str,
+) -> str | None:
+    if line_number < 1:
+        return None
+
+    lines = original_content.splitlines(keepends=True)
+
+    if line_number > len(lines):
+        return None
+
+    original_line = lines[line_number - 1]
+    line_ending = "\n" if original_line.endswith("\n") else ""
+
+    indent_match = re.match(r"^(\s*)", original_line)
+    indent = indent_match.group(1) if indent_match else ""
+
+    clean_replacement = replacement_line.strip()
+
+    lines[line_number - 1] = f"{indent}{clean_replacement}{line_ending}"
+
+    return "".join(lines)
+
+
+def replace_exact_text(
+    original_content: str,
+    old_text: str,
+    new_text: str,
+) -> str | None:
+    if old_text not in original_content:
+        return None
+
+    return original_content.replace(old_text, new_text, 1)
+
+
 def build_modified_content(
     original_content: str,
     change: dict[str, Any],
 ) -> str:
     instructions = change.get("instructions") or ""
     replacement_snippet = change.get("replacement_snippet")
+    old_text = change.get("old_text") or change.get("search_text")
+    new_text = change.get("new_text") or change.get("replacement_text")
+    target_line = change.get("target_line")
 
+    # 1. Best case: explicit old/new text from a structured repair plan.
+    if old_text and new_text:
+        modified = replace_exact_text(
+            original_content=original_content,
+            old_text=str(old_text),
+            new_text=str(new_text),
+        )
+
+        if modified is not None:
+            return modified
+
+    # 2. Parse natural-language instruction:
+    #    "change `def hello()` to `def hello():`"
     exact_replace = parse_replace_instruction(instructions)
 
     if exact_replace:
-        old_text, new_text = exact_replace
+        parsed_old_text, parsed_new_text = exact_replace
 
-        if old_text in original_content:
-            return original_content.replace(old_text, new_text, 1)
+        modified = replace_exact_text(
+            original_content=original_content,
+            old_text=parsed_old_text,
+            new_text=parsed_new_text,
+        )
 
+        if modified is not None:
+            return modified
+
+    # 3. Replace by explicit target_line if present.
+    if target_line and replacement_snippet:
+        modified = replace_line_by_number(
+            original_content=original_content,
+            line_number=int(target_line),
+            replacement_line=str(replacement_snippet),
+        )
+
+        if modified is not None:
+            return modified
+
+    # 4. Parse line number from instruction:
+    #    "On line 1, change ..."
+    parsed_line = parse_target_line(instructions)
+
+    if parsed_line and replacement_snippet:
+        modified = replace_line_by_number(
+            original_content=original_content,
+            line_number=parsed_line,
+            replacement_line=str(replacement_snippet),
+        )
+
+        if modified is not None:
+            return modified
+
+    # 5. Replace full function safely when the replacement snippet is complete Python.
     if replacement_snippet:
         function_replaced = replace_function_by_name(
             original_content=original_content,
-            replacement_snippet=replacement_snippet,
+            replacement_snippet=str(replacement_snippet),
         )
 
         if function_replaced is not None:
@@ -162,7 +271,9 @@ def build_patches_from_repair_plan(
 
         if change_type == "create":
             if target_file.exists():
-                raise ValueError(f"Cannot create file because it already exists: {file_path}")
+                raise ValueError(
+                    f"Cannot create file because it already exists: {file_path}"
+                )
 
             new_content = change.get("replacement_snippet") or ""
             old_content = ""
@@ -174,7 +285,7 @@ def build_patches_from_repair_plan(
             old_content = target_file.read_text(encoding="utf-8", errors="replace")
 
             if change_type == "dependency" and change.get("replacement_snippet"):
-                new_content = change["replacement_snippet"].strip() + "\n"
+                new_content = str(change["replacement_snippet"]).strip() + "\n"
             else:
                 new_content = build_modified_content(old_content, change)
 

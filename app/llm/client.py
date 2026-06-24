@@ -3,7 +3,7 @@ from langchain_openai import ChatOpenAI
 from app.config import get_settings
 
 
-def get_llm():
+def get_llm() -> ChatOpenAI:
     settings = get_settings()
 
     return ChatOpenAI(

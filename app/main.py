@@ -1,15 +1,25 @@
-from fastapi import FastAPI, HTTPException
-
-from app.agent.graph import build_repair_graph
-from app.schemas.api import RepairRequest, RepairResponse
-from app.projects.registry import get_project, list_projects
-from app.scanner.project_issue_scanner import scan_project
-from app.schemas.api import ProjectItem, ScanProjectResponse, ScanIssueItem
 from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from app.agent.graph import build_repair_graph
 
+from app.agent.graph import build_repair_graph
+from app.patching.diff_builder import (
+    apply_patches_to_project,
+    build_patches_from_repair_plan,
+)
+from app.projects.issue_store import (
+    get_project_issue,
+    get_project_issues,
+    get_project_patches,
+    get_repair_plan,
+    save_project_issues,
+    save_project_patches,
+    save_repair_plan,
+)
+from app.projects.registry import get_project, list_projects
+from app.scanner.project_issue_scanner import ScanIssue, ToolRun, scan_project
 from app.schemas.api import (
     ApplyPatchResponse,
     BuildDiffResponse,
@@ -24,20 +34,6 @@ from app.schemas.api import (
     ToolRunItem,
 )
 
-from app.patching.diff_builder import (
-    apply_patches_to_project,
-    build_patches_from_repair_plan,
-)
-from app.projects.issue_store import (
-    get_project_issue,
-    get_project_issues,
-    get_project_patches,
-    get_repair_plan,
-    save_project_issues,
-    save_project_patches,
-    save_repair_plan,
-)
-
 app = FastAPI(
     title="AI Coding Assistant",
     version="0.1.0",
@@ -49,9 +45,72 @@ STATIC_DIR = PROJECT_ROOT / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def to_tool_run_item(tool_run: ToolRun) -> ToolRunItem:
+    return ToolRunItem(
+        tool=tool_run.tool,
+        command=tool_run.command,
+        status=tool_run.status,
+        exit_code=tool_run.exit_code,
+        output=tool_run.output,
+        summary=getattr(tool_run, "summary", ""),
+        suggested_action=getattr(tool_run, "suggested_action", None),
+        raw_output=getattr(tool_run, "raw_output", tool_run.output),
+    )
+
+
+def to_scan_issue_item(issue: ScanIssue) -> ScanIssueItem:
+    return ScanIssueItem(
+        id=issue.id,
+        tool=issue.tool,
+        title=issue.title,
+        severity=issue.severity,
+        details=issue.details,
+        command=issue.command,
+        summary=getattr(issue, "summary", ""),
+        location=getattr(issue, "location", None),
+        suggested_action=getattr(issue, "suggested_action", None),
+        raw_details=getattr(issue, "raw_details", issue.details),
+    )
+
+
+def build_issue_problem(project_id: str, project_name: str, project_path: Path, issue: ScanIssue) -> str:
+    issue_summary = getattr(issue, "summary", "") or issue.title
+    issue_location = getattr(issue, "location", None)
+    issue_action = getattr(issue, "suggested_action", None)
+    raw_details = getattr(issue, "raw_details", issue.details)
+
+    return f"""
+Automated project scan detected an issue.
+
+Project:
+- id: {project_id}
+- name: {project_name}
+- path: {project_path}
+
+Issue:
+- id: {issue.id}
+- tool: {issue.tool}
+- title: {issue.title}
+- severity: {issue.severity}
+- command: {issue.command}
+- summary: {issue_summary}
+- location: {issue_location or "not detected"}
+- suggested_action: {issue_action or "not provided"}
+
+Details:
+{raw_details}
+
+Task:
+Analyze this detected issue and propose a safe repair plan.
+Do not apply changes.
+Propose file changes only.
+"""
+
+
 @app.get("/")
 def serve_frontend() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
@@ -79,7 +138,8 @@ def repair_code(request: RepairRequest) -> RepairResponse:
             status_code=500,
             detail=str(exc),
         ) from exc
-    
+
+
 @app.get("/projects", response_model=list[ProjectItem])
 def get_projects() -> list[ProjectItem]:
     return [
@@ -90,7 +150,6 @@ def get_projects() -> list[ProjectItem]:
         )
         for project in list_projects()
     ]
-
 
 
 @app.post("/projects/{project_id}/scan", response_model=ScanProjectResponse)
@@ -104,31 +163,22 @@ def scan_selected_project(project_id: str) -> ScanProjectResponse:
         return ScanProjectResponse(
             project_id=result.project_id,
             tool_runs=[
-                ToolRunItem(
-                    tool=tool_run.tool,
-                    command=tool_run.command,
-                    status=tool_run.status,
-                    exit_code=tool_run.exit_code,
-                    output=tool_run.output,
-                )
+                to_tool_run_item(tool_run)
                 for tool_run in result.tool_runs
             ],
             issues=[
-                ScanIssueItem(
-                    id=issue.id,
-                    tool=issue.tool,
-                    title=issue.title,
-                    severity=issue.severity,
-                    details=issue.details,
-                    command=issue.command,
-                )
+                to_scan_issue_item(issue)
                 for issue in result.issues
             ],
         )
 
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
+
 @app.get("/projects/{project_id}/issues", response_model=IssuesResponse)
 def list_project_issues(project_id: str) -> IssuesResponse:
     try:
@@ -138,21 +188,18 @@ def list_project_issues(project_id: str) -> IssuesResponse:
         return IssuesResponse(
             project_id=project.id,
             issues=[
-                ScanIssueItem(
-                    id=issue.id,
-                    tool=issue.tool,
-                    title=issue.title,
-                    severity=issue.severity,
-                    details=issue.details,
-                    command=issue.command,
-                )
+                to_scan_issue_item(issue)
                 for issue in issues
             ],
         )
 
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
+
 @app.post(
     "/projects/{project_id}/issues/{issue_id}/propose-fix",
     response_model=ProposeFixResponse,
@@ -162,57 +209,33 @@ def propose_fix_for_issue(project_id: str, issue_id: str) -> ProposeFixResponse:
         project = get_project(project_id)
         issue = get_project_issue(project.id, issue_id)
 
-        problem = f"""
-Automated project scan detected an issue.
-
-Project:
-- id: {project.id}
-- name: {project.name}
-- path: {project.path}
-
-Issue:
-- id: {issue.id}
-- tool: {issue.tool}
-- title: {issue.title}
-- severity: {issue.severity}
-- command: {issue.command}
-
-Details:
-{issue.details}
-
-Task:
-Analyze this detected issue and propose a safe repair plan.
-Do not apply changes.
-Propose file changes only.
-"""
+        problem = build_issue_problem(
+            project_id=project.id,
+            project_name=project.name,
+            project_path=project.path,
+            issue=issue,
+        )
 
         graph = build_repair_graph()
 
         result = graph.invoke(
-    {
-        "problem": problem,
-        "project_id": project.id,
-        "project_path": str(project.path),
-    }
+            {
+                "problem": problem,
+                "project_id": project.id,
+                "project_path": str(project.path),
+            }
+        )
 
-)   
         save_repair_plan(
-    project_id=project.id,
-    issue_id=issue.id,
-    repair_plan=result["repair_plan"],
-)
+            project_id=project.id,
+            issue_id=issue.id,
+            repair_plan=result["repair_plan"],
+        )
 
         return ProposeFixResponse(
             project_id=project.id,
             issue_id=issue.id,
-            issue=ScanIssueItem(
-                id=issue.id,
-                tool=issue.tool,
-                title=issue.title,
-                severity=issue.severity,
-                details=issue.details,
-                command=issue.command,
-            ),
+            issue=to_scan_issue_item(issue),
             context_report=result.get("context_report", ""),
             repair_plan=result["repair_plan"],
         )
@@ -222,12 +245,12 @@ Propose file changes only.
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
+
 @app.post(
     "/projects/{project_id}/issues/{issue_id}/build-diff",
     response_model=BuildDiffResponse,
 )
-
 def build_diff_for_issue(project_id: str, issue_id: str) -> BuildDiffResponse:
     try:
         project = get_project(project_id)
@@ -263,7 +286,8 @@ def build_diff_for_issue(project_id: str, issue_id: str) -> BuildDiffResponse:
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
+
 @app.post(
     "/projects/{project_id}/issues/{issue_id}/apply",
     response_model=ApplyPatchResponse,
@@ -286,24 +310,11 @@ def apply_fix_for_issue(project_id: str, issue_id: str) -> ApplyPatchResponse:
             issue_id=issue_id,
             applied_files=applied_files,
             tool_runs=[
-                ToolRunItem(
-                    tool=tool_run.tool,
-                    command=tool_run.command,
-                    status=tool_run.status,
-                    exit_code=tool_run.exit_code,
-                    output=tool_run.output,
-                )
+                to_tool_run_item(tool_run)
                 for tool_run in result.tool_runs
             ],
             issues=[
-                ScanIssueItem(
-                    id=issue.id,
-                    tool=issue.tool,
-                    title=issue.title,
-                    severity=issue.severity,
-                    details=issue.details,
-                    command=issue.command,
-                )
+                to_scan_issue_item(issue)
                 for issue in result.issues
             ],
         )

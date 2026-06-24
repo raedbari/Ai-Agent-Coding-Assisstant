@@ -1,4 +1,5 @@
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -25,7 +26,14 @@ class ToolRunItem(BaseModel):
     command: str
     status: str
     exit_code: int
-    output: str
+
+    # Raw technical output kept for debugging / "Show details"
+    output: str = ""
+
+    # User-facing fields
+    summary: str = ""
+    suggested_action: str | None = None
+    raw_output: str = ""
 
 
 class ScanIssueItem(BaseModel):
@@ -33,8 +41,17 @@ class ScanIssueItem(BaseModel):
     tool: str
     title: str
     severity: str
-    details: str
+
+    # Raw technical details kept for debugging / "Show details"
+    details: str = ""
+
     command: str
+
+    # User-facing fields
+    summary: str = ""
+    location: str | None = None
+    suggested_action: str | None = None
+    raw_details: str = ""
 
 
 class ScanProjectResponse(BaseModel):
@@ -54,6 +71,7 @@ class ProposeFixResponse(BaseModel):
     issue: ScanIssueItem
     context_report: str
     repair_plan: dict[str, Any]
+
 
 class PatchDiffItem(BaseModel):
     file_path: str

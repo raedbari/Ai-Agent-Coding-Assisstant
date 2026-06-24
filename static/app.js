@@ -14,14 +14,24 @@ const WorkflowState = {
 };
 
 const steps = [
-  { key: "select", label: "اختيار المشروع" },
-  { key: "scan", label: "فحص المشروع" },
-  { key: "issue", label: "اختيار مشكلة" },
-  { key: "fix", label: "اقتراح الإصلاح" },
-  { key: "diff", label: "عرض الفرق" },
-  { key: "apply", label: "تطبيق التعديل" },
-  { key: "verify", label: "التحقق النهائي" }
+  { key: "select", label: "Select project" },
+  { key: "scan", label: "Scan project" },
+  { key: "issue", label: "Select issue" },
+  { key: "fix", label: "Propose fix" },
+  { key: "diff", label: "Review diff" },
+  { key: "apply", label: "Apply patch" },
+  { key: "verify", label: "Verify result" }
 ];
+
+const INITIAL_LOG_TEXT = "No action started yet.";
+
+const ToolStatus = {
+  PASSED: "passed",
+  FAILED: "failed",
+  INTERRUPTED: "interrupted",
+  TOOL_MISSING: "tool_missing",
+  NO_TESTS: "no_tests"
+};
 
 let state = WorkflowState.INITIAL;
 let selectedProjectId = null;
@@ -99,26 +109,32 @@ function renderWorkflow() {
 
 function renderControls() {
   const projectChosen = Boolean(selectedProjectId);
+  const busyStates = [
+    WorkflowState.SCANNING,
+    WorkflowState.PROPOSING_FIX,
+    WorkflowState.BUILDING_DIFF,
+    WorkflowState.APPLYING_PATCH
+  ];
 
   projectSelectionArea.classList.toggle("hidden", projectChosen);
   selectedProjectArea.classList.toggle("hidden", !projectChosen);
 
   confirmProjectButton.disabled = state !== WorkflowState.INITIAL;
-  scanProjectButton.disabled = state !== WorkflowState.PROJECT_SELECTED && state !== WorkflowState.SCAN_DONE;
-  changeProjectButton.disabled = state === WorkflowState.SCANNING || state === WorkflowState.PROPOSING_FIX || state === WorkflowState.BUILDING_DIFF || state === WorkflowState.APPLYING_PATCH;
+  scanProjectButton.disabled = ![
+    WorkflowState.PROJECT_SELECTED,
+    WorkflowState.SCAN_DONE
+  ].includes(state);
+
+  changeProjectButton.disabled = busyStates.includes(state);
 }
 
 function addLog(message) {
   const now = new Date().toLocaleTimeString("en-GB");
   const previous = activityLog.textContent.trim();
-
   const line = `[${now}] ${message}`;
 
-  if (previous === "لم يبدأ أي إجراء بعد.") {
-    activityLog.textContent = line;
-  } else {
-    activityLog.textContent += `\n${line}`;
-  }
+  activityLog.textContent =
+    previous === INITIAL_LOG_TEXT ? line : `${activityLog.textContent}\n${line}`;
 
   activityLog.scrollTop = activityLog.scrollHeight;
 }
@@ -126,6 +142,11 @@ function addLog(message) {
 function setBox(element, content, kind = "muted") {
   element.className = `box ${kind}`;
   element.textContent = content;
+}
+
+function clearBox(element, kind = "") {
+  element.className = kind ? `box ${kind}` : "box";
+  element.innerHTML = "";
 }
 
 async function api(path, options = {}) {
@@ -146,7 +167,7 @@ async function api(path, options = {}) {
 
 async function loadProjects() {
   try {
-    addLog("تحميل قائمة المشاريع...");
+    addLog("Loading projects...");
     const projects = await api("/projects");
 
     projectSelect.innerHTML = "";
@@ -158,12 +179,12 @@ async function loadProjects() {
       projectSelect.appendChild(option);
     }
 
-    addLog("تم تحميل المشاريع.");
-    setState(WorkflowState.INITIAL, "اختر مشروعًا");
+    addLog("Projects loaded.");
+    setState(WorkflowState.INITIAL, "Select a project");
   } catch (error) {
-    setState(WorkflowState.ERROR, "فشل تحميل المشاريع");
-    setBox(issuesBox, `فشل تحميل المشاريع:\n${error.message}`, "error");
-    addLog("فشل تحميل المشاريع.");
+    setState(WorkflowState.ERROR, "Failed to load projects");
+    setBox(issuesBox, `Failed to load projects:\n${error.message}`, "error");
+    addLog("Failed to load projects.");
   }
 }
 
@@ -173,41 +194,449 @@ function confirmProject() {
 
   selectedProjectText.textContent = selectedProjectId;
 
-  setBox(toolRunsBox, "لم يتم الفحص بعد.", "muted");
-  setBox(issuesBox, "اضغط على زر فحص المشروع.", "muted");
-  setBox(repairPlanBox, "لم يتم اقتراح إصلاح بعد.", "muted");
-  setBox(diffBox, "لم يتم بناء الفرق بعد.", "muted");
-  setBox(finalResultBox, "لم يتم تطبيق أي تعديل بعد.", "muted");
+  setBox(toolRunsBox, "No scan has been run yet.", "muted");
+  setBox(issuesBox, "Scan the project to detect issues.", "muted");
+  setBox(repairPlanBox, "No fix has been proposed yet.", "muted");
+  setBox(diffBox, "No diff has been built yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
 
-  addLog(`تم اختيار المشروع: ${selectedProjectId}`);
-  setState(WorkflowState.PROJECT_SELECTED, "المشروع جاهز للفحص");
+  addLog(`Selected project: ${selectedProjectId}`);
+  setState(WorkflowState.PROJECT_SELECTED, "Project ready to scan");
 }
 
 function changeProject() {
   selectedProjectId = null;
   selectedIssueId = null;
 
-  addLog("تم الرجوع إلى اختيار المشروع.");
-  setState(WorkflowState.INITIAL, "اختر مشروعًا");
+  addLog("Returned to project selection.");
+  setState(WorkflowState.INITIAL, "Select a project");
+}
+
+function toolDisplayName(tool) {
+  const names = {
+    compileall: "Compile check",
+    ruff: "Ruff",
+    pytest: "Pytest"
+  };
+
+  return names[tool] || tool;
+}
+
+function statusDisplayName(status) {
+  const names = {
+    passed: "Passed",
+    failed: "Failed",
+    interrupted: "Interrupted",
+    tool_missing: "Tool missing",
+    no_tests: "No tests"
+  };
+
+  return names[status] || status;
+}
+
+function statusKind(status) {
+  if (status === ToolStatus.PASSED) {
+    return "success";
+  }
+
+  if ([ToolStatus.INTERRUPTED, ToolStatus.NO_TESTS].includes(status)) {
+    return "warning";
+  }
+
+  return "error";
+}
+
+function isBlockingToolRun(run) {
+  return [ToolStatus.FAILED, ToolStatus.TOOL_MISSING].includes(run.status);
+}
+
+function isWarningToolRun(run) {
+  return [ToolStatus.INTERRUPTED, ToolStatus.NO_TESTS].includes(run.status);
+}
+
+function compactToolFallback(run) {
+  const output = run.output || run.raw_output || "";
+
+  if (run.status === ToolStatus.PASSED) {
+    return `${toolDisplayName(run.tool)} passed.`;
+  }
+
+  if (run.status === ToolStatus.NO_TESTS) {
+    return "No tests were collected.";
+  }
+
+  if (run.status === ToolStatus.INTERRUPTED) {
+    return `${toolDisplayName(run.tool)} did not complete.`;
+  }
+
+  if (output.includes("SyntaxError")) {
+    return "Python syntax error found.";
+  }
+
+  if (output.includes("invalid-syntax")) {
+    return "Invalid Python syntax found.";
+  }
+
+  if (output.includes("No module named")) {
+    return `${toolDisplayName(run.tool)} is not installed in the active environment.`;
+  }
+
+  return `${toolDisplayName(run.tool)} ${statusDisplayName(run.status).toLowerCase()}.`;
+}
+function renderBadge(text, kind = "") {
+  const badge = document.createElement("span");
+  badge.className = kind ? `badge ${kind}` : "badge";
+  badge.textContent = text;
+  return badge;
+}
+
+function renderTechnicalDetails({ command, exitCode, rawText }) {
+  const details = document.createElement("details");
+  details.className = "technical-details";
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Details";
+
+  const pre = document.createElement("pre");
+  pre.textContent = [
+    command ? `Command: ${command}` : null,
+    Number.isInteger(exitCode) ? `Exit code: ${exitCode}` : null,
+    "",
+    rawText || "No technical output."
+  ].filter(Boolean).join("\n");
+
+  details.appendChild(summary);
+  details.appendChild(pre);
+
+  return details;
+}
+
+function hasUsefulRawText(rawText, visibleText) {
+  if (!rawText) {
+    return false;
+  }
+
+  return rawText.trim() !== visibleText.trim();
+}
+
+function createToolRunCard(run, options = {}) {
+  const showDetails = options.showDetails ?? false;
+  const showAction = options.showAction ?? true;
+
+  const card = document.createElement("div");
+  card.className = `issue-card status-${statusKind(run.status)}`;
+
+  const title = document.createElement("h3");
+  title.textContent = `${toolDisplayName(run.tool)} — ${statusDisplayName(run.status)}`;
+
+  const summary = document.createElement("p");
+  summary.textContent = run.summary || compactToolFallback(run);
+
+  card.appendChild(title);
+  card.appendChild(summary);
+
+  if (showAction && run.suggested_action) {
+    const action = document.createElement("p");
+    action.className = "action-text";
+    action.textContent = `Action: ${run.suggested_action}`;
+    card.appendChild(action);
+  }
+
+  const rawText = run.raw_output || run.output || "";
+
+  if (showDetails && hasUsefulRawText(rawText, summary.textContent)) {
+    card.appendChild(
+      renderTechnicalDetails({
+        command: run.command,
+        exitCode: run.exit_code,
+        rawText
+      })
+    );
+  }
+
+  return card;
+}
+
+function issueKind(issue) {
+  if (issue.severity === "high") {
+    return "error";
+  }
+
+  if (issue.severity === "medium") {
+    return "warning";
+  }
+
+  return "muted";
+}
+
+function createIssueCard(issue, options = {}) {
+  const showProposeButton = options.showProposeButton ?? true;
+  const showDetails = options.showDetails ?? false;
+
+  const card = document.createElement("div");
+  card.className = `issue-card status-${issueKind(issue)}`;
+
+  const title = document.createElement("h3");
+  title.textContent = issue.summary || issue.title;
+
+  const badges = document.createElement("div");
+  badges.className = "badges";
+  badges.appendChild(renderBadge(`Tool: ${toolDisplayName(issue.tool)}`));
+  badges.appendChild(renderBadge(`Severity: ${issue.severity}`));
+
+  if (issue.location) {
+    badges.appendChild(renderBadge(`Location: ${issue.location}`));
+  }
+
+  card.appendChild(title);
+  card.appendChild(badges);
+
+  if (issue.suggested_action) {
+    const action = document.createElement("p");
+    action.className = "action-text";
+    action.textContent = `Action: ${issue.suggested_action}`;
+    card.appendChild(action);
+  }
+
+  const rawDetails = issue.raw_details || issue.details || "";
+
+  if (showDetails && hasUsefulRawText(rawDetails, issue.summary || issue.title)) {
+    card.appendChild(
+      renderTechnicalDetails({
+        command: issue.command,
+        exitCode: null,
+        rawText: rawDetails
+      })
+    );
+  }
+
+  if (showProposeButton) {
+    const actions = document.createElement("div");
+    actions.className = "action-row";
+
+    const proposeButton = document.createElement("button");
+    proposeButton.textContent = "Propose fix";
+    proposeButton.onclick = () => selectIssueAndProposeFix(issue.id);
+
+    actions.appendChild(proposeButton);
+    card.appendChild(actions);
+  }
+
+  return card;
+}
+
+function getBlockingIssues(issues) {
+  return issues.filter(issue => issue.severity === "high");
+}
+
+function getWarningIssues(issues) {
+  return issues.filter(issue => issue.severity !== "high");
+}
+
+function getVerificationLevel(result) {
+  const blockingIssues = getBlockingIssues(result.issues || []);
+  const hasToolMissing = result.tool_runs.some(run => run.status === ToolStatus.TOOL_MISSING);
+  const hasInterrupted = result.tool_runs.some(run => run.status === ToolStatus.INTERRUPTED);
+  const hasNoTests = result.tool_runs.some(run => run.status === ToolStatus.NO_TESTS);
+  const hasFailedCompile = result.tool_runs.some(run => {
+    return run.tool === "compileall" && run.status === ToolStatus.FAILED;
+  });
+
+  if (hasFailedCompile || hasToolMissing || blockingIssues.length > 0) {
+    return "error";
+  }
+
+  if (hasInterrupted || hasNoTests || result.issues.length > 0) {
+    return "warning";
+  }
+
+  return "success";
+}
+function getVerificationTitle(level) {
+  if (level === "success") {
+    return "Patch applied successfully";
+  }
+
+  if (level === "warning") {
+    return "Patch applied, review recommended";
+  }
+
+  return "Patch applied, but blocking checks failed";
+}
+
+function getVerificationMessage(result, level) {
+  if (level === "success") {
+    return "All configured verification checks passed.";
+  }
+
+  if (level === "warning") {
+    return "The patch was applied. Some checks produced warnings or non-blocking findings.";
+  }
+
+  const blockingIssues = getBlockingIssues(result.issues || []);
+
+  if (blockingIssues.length) {
+    return blockingIssues[0].summary || blockingIssues[0].title;
+  }
+
+  const failedRun = result.tool_runs.find(isBlockingToolRun);
+
+  if (failedRun) {
+    return failedRun.summary || compactToolFallback(failedRun);
+  }
+
+  return "A blocking verification problem was detected.";
+}
+
+function getNextAction(result, level) {
+  if (level === "success") {
+    return "No action required.";
+  }
+
+  const compileRun = result.tool_runs.find(run => run.tool === "compileall");
+
+  if (compileRun && compileRun.status === ToolStatus.FAILED) {
+    return compileRun.suggested_action || "Fix the Python compile error, then scan again.";
+  }
+
+  const ruffIssue = (result.issues || []).find(issue => issue.tool === "ruff");
+
+  if (ruffIssue) {
+    return ruffIssue.suggested_action || "Review the Ruff issue and apply the suggested cleanup.";
+  }
+
+  const pytestRun = result.tool_runs.find(run => run.tool === "pytest");
+
+  if (pytestRun && pytestRun.status === ToolStatus.NO_TESTS) {
+    return "Add tests or confirm that this project intentionally has no tests.";
+  }
+
+  const interruptedRun = result.tool_runs.find(run => run.status === ToolStatus.INTERRUPTED);
+
+  if (interruptedRun) {
+    return interruptedRun.suggested_action || "Run verification again.";
+  }
+
+  if (level === "warning") {
+    return "Review the warning, then decide whether another fix is needed.";
+  }
+
+  return "Review the blocking check before continuing.";
+}
+
+function renderVerificationSummary(result) {
+  const list = document.createElement("ul");
+  list.className = "compact-list";
+
+  for (const run of result.tool_runs) {
+    const item = document.createElement("li");
+    item.textContent = `${toolDisplayName(run.tool)}: ${statusDisplayName(run.status)}`;
+    list.appendChild(item);
+  }
+
+  return list;
+}
+
+function renderVerificationDetails(result) {
+  const details = document.createElement("details");
+  details.className = "technical-details";
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Details";
+
+  const pre = document.createElement("pre");
+
+  const toolRunsText = result.tool_runs.map(run => {
+    return [
+      `${toolDisplayName(run.tool)} — ${statusDisplayName(run.status)}`,
+      run.command ? `Command: ${run.command}` : null,
+      Number.isInteger(run.exit_code) ? `Exit code: ${run.exit_code}` : null,
+      run.raw_output || run.output || "No output."
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
+
+  const issuesText = (result.issues || []).map(issue => {
+    return [
+      `${issue.summary || issue.title}`,
+      issue.location ? `Location: ${issue.location}` : null,
+      issue.suggested_action ? `Action: ${issue.suggested_action}` : null,
+      issue.raw_details || issue.details || ""
+    ].filter(Boolean).join("\n");
+  }).join("\n\n---\n\n");
+
+  pre.textContent = [
+    "Tool runs:",
+    toolRunsText || "None.",
+    "",
+    "Issues:",
+    issuesText || "None."
+  ].join("\n");
+
+  details.appendChild(summary);
+  details.appendChild(pre);
+
+  return details;
+}
+
+function renderFinalResult(result) {
+  finalResultBox.innerHTML = "";
+
+  const level = getVerificationLevel(result);
+  finalResultBox.className = `box ${level}`;
+
+  const title = document.createElement("h3");
+  title.textContent = getVerificationTitle(level);
+  finalResultBox.appendChild(title);
+
+  const files = document.createElement("p");
+  files.textContent = `Modified files: ${result.applied_files.join(", ") || "None"}`;
+  finalResultBox.appendChild(files);
+
+  const message = document.createElement("p");
+  message.textContent = getVerificationMessage(result, level);
+  finalResultBox.appendChild(message);
+
+  const summaryTitle = document.createElement("h3");
+  summaryTitle.textContent = "Verification summary";
+  finalResultBox.appendChild(summaryTitle);
+
+  finalResultBox.appendChild(renderVerificationSummary(result));
+
+  const nextAction = document.createElement("p");
+  nextAction.className = "action-text";
+  nextAction.textContent = `Next action: ${getNextAction(result, level)}`;
+  finalResultBox.appendChild(nextAction);
+
+  finalResultBox.appendChild(renderVerificationDetails(result));
 }
 
 function renderToolRuns(toolRuns) {
+  toolRunsBox.innerHTML = "";
+
   if (!toolRuns.length) {
-    setBox(toolRunsBox, "لم يتم تشغيل أدوات فحص.", "muted");
+    setBox(toolRunsBox, "No scan tools were executed.", "muted");
     return;
   }
 
-  const text = toolRuns.map(run => {
-    return [
-      `الأداة (Tool): ${run.tool}`,
-      `الحالة (Status): ${run.status}`,
-      `كود الخروج (Exit Code): ${run.exit_code}`,
-      `الأمر (Command): ${run.command}`,
-      run.output ? `المخرجات (Output):\n${run.output}` : "المخرجات (Output): فارغة"
-    ].join("\n");
-  }).join("\n\n--------------------\n\n");
+  const hasBlockingFailure = toolRuns.some(isBlockingToolRun);
+  const hasWarning = toolRuns.some(isWarningToolRun);
 
-  setBox(toolRunsBox, text, "success");
+  if (hasBlockingFailure) {
+    toolRunsBox.className = "box error";
+  } else if (hasWarning) {
+    toolRunsBox.className = "box warning";
+  } else {
+    toolRunsBox.className = "box success";
+  }
+
+  for (const run of toolRuns) {
+    toolRunsBox.appendChild(
+      createToolRunCard(run, {
+        showDetails: false,
+        showAction: true
+      })
+    );
+  }
 }
 
 function renderIssues(issues) {
@@ -215,87 +644,95 @@ function renderIssues(issues) {
 
   if (!issues.length) {
     issuesBox.className = "box success";
-    issuesBox.textContent = "لم يتم العثور على مشاكل.";
+    issuesBox.textContent = "No issues found.";
     return;
   }
 
-  issuesBox.className = "box";
+  const blockingIssues = getBlockingIssues(issues);
+  issuesBox.className = blockingIssues.length ? "box error" : "box warning";
 
-  issues.forEach(issue => {
-    const card = document.createElement("div");
-    card.className = "issue-card";
-
-    const title = document.createElement("h3");
-    title.textContent = issue.title;
-
-    const badges = document.createElement("div");
-    badges.className = "badges";
-    badges.innerHTML = `
-      <span class="badge">الأداة (Tool): ${issue.tool}</span>
-      <span class="badge">الخطورة (Severity): ${issue.severity}</span>
-    `;
-
-    const details = document.createElement("pre");
-    details.textContent = issue.details;
-
-    const actions = document.createElement("div");
-    actions.className = "action-row";
-
-    const proposeButton = document.createElement("button");
-    proposeButton.textContent = "اقترح إصلاحًا";
-    proposeButton.onclick = () => selectIssueAndProposeFix(issue.id);
-
-    actions.appendChild(proposeButton);
-
-    card.appendChild(title);
-    card.appendChild(badges);
-    card.appendChild(details);
-    card.appendChild(actions);
-
-    issuesBox.appendChild(card);
-  });
+  for (const issue of issues) {
+    issuesBox.appendChild(
+      createIssueCard(issue, {
+        showProposeButton: true,
+        showDetails: false
+      })
+    );
+  }
 }
 
 async function scanProject() {
-  setState(WorkflowState.SCANNING, "جاري فحص المشروع");
-  addLog("بدأ فحص المشروع.");
-  setBox(toolRunsBox, "جاري تشغيل أدوات الفحص...", "muted");
-  setBox(issuesBox, "جاري البحث عن المشاكل...", "muted");
+  setState(WorkflowState.SCANNING, "Scanning project");
+  addLog("Project scan started.");
+  setBox(toolRunsBox, "Running verification tools...", "muted");
+  setBox(issuesBox, "Checking for issues...", "muted");
 
   try {
     const result = await api(`/projects/${selectedProjectId}/scan`, {
       method: "POST"
     });
 
-    addLog("انتهى فحص المشروع.");
+    addLog("Project scan finished.");
     renderToolRuns(result.tool_runs);
     renderIssues(result.issues);
 
     if (result.issues.length) {
-      addLog(`تم العثور على ${result.issues.length} مشكلة.`);
-      setState(WorkflowState.SCAN_DONE, "اختر مشكلة من القائمة");
+      addLog(`${result.issues.length} issue(s) found.`);
+      setState(WorkflowState.SCAN_DONE, "Select an issue");
     } else {
-      addLog("لم يتم العثور على مشاكل.");
-      setState(WorkflowState.VERIFY_DONE, "المشروع لا يحتوي على مشاكل ظاهرة");
-      setBox(finalResultBox, "تم الفحص بنجاح. لا توجد مشاكل.", "success");
+      addLog("No issues found.");
+      setState(WorkflowState.VERIFY_DONE, "No visible issues found");
+      setBox(finalResultBox, "Scan completed. No issues found.", "success");
     }
   } catch (error) {
-    setState(WorkflowState.ERROR, "فشل الفحص");
-    setBox(issuesBox, `فشل الفحص:\n${error.message}`, "error");
-    addLog("فشل فحص المشروع.");
+    setState(WorkflowState.ERROR, "Scan failed");
+    setBox(issuesBox, `Scan failed:\n${error.message}`, "error");
+    addLog("Project scan failed.");
   }
 }
 
+function renderRepairPlan(plan) {
+  repairPlanBox.innerHTML = "";
+  repairPlanBox.className = "box";
+
+  const title = document.createElement("h3");
+  title.textContent = plan.summary || "Fix proposal";
+  repairPlanBox.appendChild(title);
+
+  const firstChange = Array.isArray(plan.proposed_file_changes) && plan.proposed_file_changes.length
+    ? plan.proposed_file_changes[0]
+    : null;
+
+  if (firstChange) {
+    const file = document.createElement("p");
+    file.textContent = `File: ${firstChange.file_path || "Unknown file"}`;
+    repairPlanBox.appendChild(file);
+
+    const action = document.createElement("p");
+    action.textContent = `Change: ${firstChange.instructions || firstChange.reason || "Apply the proposed change."}`;
+    repairPlanBox.appendChild(action);
+
+    if (firstChange.old_text !== null && firstChange.old_text !== undefined && firstChange.new_text !== null && firstChange.new_text !== undefined) {
+      const replacement = document.createElement("p");
+      replacement.textContent = `Replace: ${firstChange.old_text} → ${firstChange.new_text}`;
+      repairPlanBox.appendChild(replacement);
+    }
+  } else {
+    const fallback = document.createElement("p");
+    fallback.textContent = plan.suspected_root_cause || "No concrete file change was proposed.";
+    repairPlanBox.appendChild(fallback);
+  }
+}
 async function selectIssueAndProposeFix(issueId) {
   selectedIssueId = issueId;
 
-  setState(WorkflowState.PROPOSING_FIX, "جاري اقتراح الإصلاح");
-  addLog(`تم اختيار المشكلة: ${issueId}`);
-  addLog("جاري تحليل المشكلة وإنشاء خطة إصلاح.");
+  setState(WorkflowState.PROPOSING_FIX, "Proposing fix");
+  addLog(`Selected issue: ${issueId}`);
+  addLog("Analyzing the issue and creating a repair plan.");
 
-  setBox(repairPlanBox, "جاري إنشاء خطة الإصلاح...", "muted");
-  setBox(diffBox, "لم يتم بناء الفرق بعد.", "muted");
-  setBox(finalResultBox, "لم يتم تطبيق أي تعديل بعد.", "muted");
+  setBox(repairPlanBox, "Creating repair plan...", "muted");
+  setBox(diffBox, "No diff has been built yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
 
   try {
     const result = await api(
@@ -303,32 +740,18 @@ async function selectIssueAndProposeFix(issueId) {
       { method: "POST" }
     );
 
-    addLog("تم إنشاء خطة الإصلاح.");
+    addLog("Repair plan created.");
 
     const plan = result.repair_plan;
 
-    const readablePlan = [
-      `الملخص:\n${plan.summary}`,
-      "",
-      `السبب المتوقع:\n${plan.suspected_root_cause}`,
-      "",
-      "الخطوات:",
-      ...(plan.steps || []).map((step, index) => {
-        return `${index + 1}. ${step.title}\n   ${step.explanation}\n   التعديل المقترح: ${step.suggested_change}`;
-      }),
-      "",
-      "تغييرات الملفات المقترحة:",
-      JSON.stringify(plan.proposed_file_changes || [], null, 2)
-    ].join("\n");
-
-    setBox(repairPlanBox, readablePlan);
-    setState(WorkflowState.FIX_PROPOSED, "تم اقتراح الإصلاح");
+    renderRepairPlan(plan);
+    setState(WorkflowState.FIX_PROPOSED, "Fix proposed");
 
     renderBuildDiffButton();
   } catch (error) {
-    setState(WorkflowState.ERROR, "فشل اقتراح الإصلاح");
-    setBox(repairPlanBox, `فشل اقتراح الإصلاح:\n${error.message}`, "error");
-    addLog("فشل اقتراح الإصلاح.");
+    setState(WorkflowState.ERROR, "Failed to propose fix");
+    setBox(repairPlanBox, `Failed to propose fix:\n${error.message}`, "error");
+    addLog("Failed to propose fix.");
   }
 }
 
@@ -337,18 +760,106 @@ function renderBuildDiffButton() {
   wrapper.className = "action-row";
 
   const button = document.createElement("button");
-  button.textContent = "ابنِ الفرق (Diff)";
+  button.textContent = "Build diff";
   button.onclick = buildDiff;
 
   wrapper.appendChild(button);
-  repairPlanBox.appendChild(document.createElement("br"));
   repairPlanBox.appendChild(wrapper);
 }
 
+function createPatchReviewCard(patch) {
+  const card = document.createElement("div");
+  card.className = patch.can_apply
+    ? "issue-card status-success"
+    : "issue-card status-warning";
+
+  const title = document.createElement("h3");
+  title.textContent = patch.file_path || "Unknown file";
+  card.appendChild(title);
+
+  const badges = document.createElement("div");
+  badges.className = "badges";
+  badges.appendChild(renderBadge(`Change: ${patch.change_type || "unknown"}`));
+  badges.appendChild(renderBadge(patch.can_apply ? "Can apply" : "Cannot apply"));
+  card.appendChild(badges);
+
+  const details = document.createElement("details");
+  details.open = true;
+  details.className = "technical-details";
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Diff";
+
+  const pre = document.createElement("pre");
+  pre.textContent = patch.diff || "No diff generated.";
+
+  details.appendChild(summary);
+  details.appendChild(pre);
+  card.appendChild(details);
+
+  return card;
+}
+
+function renderDiffReview(patches) {
+  diffBox.innerHTML = "";
+
+  if (!patches || !patches.length) {
+    diffBox.className = "box warning";
+    diffBox.textContent = "No diff was generated.";
+    return false;
+  }
+
+  const canApplyAll = patches.every(patch => patch.can_apply);
+
+  diffBox.className = canApplyAll ? "box diff" : "box warning";
+
+  const title = document.createElement("h3");
+  title.textContent = canApplyAll
+    ? "Diff ready for review"
+    : "Diff generated, but not all changes are safely applicable";
+
+  diffBox.appendChild(title);
+
+  for (const patch of patches) {
+    diffBox.appendChild(createPatchReviewCard(patch));
+  }
+
+  if (!canApplyAll) {
+    const warning = document.createElement("p");
+    warning.className = "action-text";
+    warning.textContent =
+      "Review the proposed changes. The patch cannot be applied automatically until all changes are safe.";
+    diffBox.appendChild(warning);
+
+    return false;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "action-row";
+
+  const applyButton = document.createElement("button");
+  applyButton.textContent = "Apply patch";
+  applyButton.onclick = applyPatch;
+
+  const rejectButton = document.createElement("button");
+  rejectButton.textContent = "Reject";
+  rejectButton.onclick = () => {
+    addLog("Patch rejected.");
+    setState(WorkflowState.DIFF_READY, "Patch rejected");
+  };
+
+  wrapper.appendChild(applyButton);
+  wrapper.appendChild(rejectButton);
+
+  diffBox.appendChild(wrapper);
+
+  return true;
+}
+
 async function buildDiff() {
-  setState(WorkflowState.BUILDING_DIFF, "جاري بناء الفرق");
-  addLog("جاري بناء الفرق قبل التطبيق.");
-  setBox(diffBox, "جاري بناء الفرق...", "muted");
+  setState(WorkflowState.BUILDING_DIFF, "Building diff");
+  addLog("Building diff for review.");
+  setBox(diffBox, "Building diff...", "muted");
 
   try {
     const result = await api(
@@ -356,65 +867,33 @@ async function buildDiff() {
       { method: "POST" }
     );
 
-    if (!result.patches.length) {
-      addLog("لم يتم إنشاء أي فرق.");
-      setBox(diffBox, "لم يتم إنشاء أي فرق.", "muted");
-      return;
+    const canApply = renderDiffReview(result.patches || []);
+
+    if (canApply) {
+      addLog("Diff is ready. Waiting for developer approval.");
+      setState(WorkflowState.DIFF_READY, "Review diff");
+    } else {
+      addLog("Diff was generated, but it is not fully applicable.");
+      setState(WorkflowState.DIFF_READY, "Review diff warnings");
     }
-
-    const text = result.patches.map(patch => {
-      return [
-        `الملف: ${patch.file_path}`,
-        `نوع التغيير: ${patch.change_type}`,
-        `قابل للتطبيق: ${patch.can_apply}`,
-        "",
-        patch.diff
-      ].join("\n");
-    }).join("\n\n--------------------\n\n");
-
-    diffBox.className = "box diff";
-    diffBox.textContent = text;
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "action-row";
-
-    const applyButton = document.createElement("button");
-    applyButton.textContent = "أوافق، طبّق التعديل";
-    applyButton.onclick = applyPatch;
-
-    const rejectButton = document.createElement("button");
-    rejectButton.textContent = "رفض التعديل";
-    rejectButton.onclick = () => {
-      addLog("رفض المطور تطبيق التعديل.");
-      setState(WorkflowState.DIFF_READY, "تم رفض التطبيق");
-    };
-
-    wrapper.appendChild(applyButton);
-    wrapper.appendChild(rejectButton);
-
-    diffBox.appendChild(document.createElement("br"));
-    diffBox.appendChild(wrapper);
-
-    addLog("تم بناء الفرق. بانتظار موافقة المطور.");
-    setState(WorkflowState.DIFF_READY, "راجع الفرق ثم وافق أو ارفض");
   } catch (error) {
-    setState(WorkflowState.ERROR, "فشل بناء الفرق");
-    setBox(diffBox, `فشل بناء الفرق:\n${error.message}`, "error");
-    addLog("فشل بناء الفرق.");
+    setState(WorkflowState.ERROR, "Failed to build diff");
+    setBox(diffBox, `Failed to build diff:\n${error.message}`, "error");
+    addLog("Failed to build diff.");
   }
 }
 
 async function applyPatch() {
-  const confirmed = confirm("هل توافق على تطبيق هذا التعديل على ملفات المشروع؟");
+  const confirmed = confirm("Apply this patch to the project files?");
 
   if (!confirmed) {
-    addLog("ألغى المطور تطبيق التعديل.");
+    addLog("Patch application was cancelled.");
     return;
   }
 
-  setState(WorkflowState.APPLYING_PATCH, "جاري تطبيق التعديل والتحقق");
-  addLog("بدأ تطبيق التعديل.");
-  setBox(finalResultBox, "جاري تطبيق التعديل ثم إعادة الفحص...", "muted");
+  setState(WorkflowState.APPLYING_PATCH, "Applying patch and verifying");
+  addLog("Applying patch.");
+  setBox(finalResultBox, "Applying patch, then running verification checks...", "muted");
 
   try {
     const result = await api(
@@ -422,34 +901,27 @@ async function applyPatch() {
       { method: "POST" }
     );
 
-    addLog("تم تطبيق التعديل.");
-    addLog("تمت إعادة الفحص.");
+    addLog("Patch applied.");
+    addLog("Verification scan finished.");
 
-    const finalText = [
-      `الملفات التي تم تعديلها:\n${result.applied_files.join(", ") || "لا يوجد"}`,
-      "",
-      "نتائج أدوات الفحص:",
-      JSON.stringify(result.tool_runs, null, 2),
-      "",
-      "المشاكل المتبقية:",
-      JSON.stringify(result.issues, null, 2)
-    ].join("\n");
+    renderFinalResult(result);
 
-    const finalKind = result.issues.length ? "error" : "success";
+    const verificationLevel = getVerificationLevel(result);
 
-    setBox(finalResultBox, finalText, finalKind);
-
-    if (result.issues.length) {
-      setState(WorkflowState.VERIFY_DONE, "تم التطبيق لكن بقيت مشاكل");
-      addLog("انتهى التحقق مع وجود مشاكل متبقية.");
+    if (verificationLevel === "success") {
+      setState(WorkflowState.VERIFY_DONE, "Patch applied and verification passed");
+      addLog("Patch succeeded. All configured checks passed.");
+    } else if (verificationLevel === "warning") {
+      setState(WorkflowState.VERIFY_DONE, "Patch applied, review recommended");
+      addLog("Patch applied, but review is recommended.");
     } else {
-      setState(WorkflowState.VERIFY_DONE, "نجح الإصلاح والتحقق");
-      addLog("نجح الإصلاح. جميع الفحوصات الأساسية مرّت.");
+      setState(WorkflowState.VERIFY_DONE, "Patch applied, blocking issues remain");
+      addLog("Patch applied, but blocking issues remain.");
     }
   } catch (error) {
-    setState(WorkflowState.ERROR, "فشل تطبيق التعديل");
-    setBox(finalResultBox, `فشل تطبيق التعديل:\n${error.message}`, "error");
-    addLog("فشل تطبيق التعديل.");
+    setState(WorkflowState.ERROR, "Failed to apply patch");
+    setBox(finalResultBox, `Failed to apply patch:\n${error.message}`, "error");
+    addLog("Failed to apply patch.");
   }
 }
 

@@ -20,6 +20,22 @@ ALLOWED_EXTENSIONS = {
     ".js",
 }
 
+BLOCKED_DIR_NAMES = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".ruff_cache",
+    "dist",
+    "build",
+}
+
+BLOCKED_FILE_NAMES = {
+    ".env",
+}
+
 
 @dataclass
 class CodeContext:
@@ -77,10 +93,21 @@ def to_project_relative_path(path_text: str, project_root: Path) -> str:
 
 def is_safe_project_file(path: Path, project_root: Path) -> bool:
     try:
-        path.resolve().relative_to(project_root.resolve())
-        return True
+        resolved_path = path.resolve()
+        resolved_root = project_root.resolve()
+        resolved_path.relative_to(resolved_root)
     except ValueError:
         return False
+
+    path_parts = {part.lower() for part in resolved_path.parts}
+
+    if path_parts.intersection(BLOCKED_DIR_NAMES):
+        return False
+
+    if resolved_path.name.lower() in BLOCKED_FILE_NAMES:
+        return False
+
+    return True
 
 
 def inspect_project_file(

@@ -18,25 +18,19 @@ ALLOWED_PROJECTS: dict[str, ProjectInfo] = {
         id="broken_python",
         name="Broken Python Demo",
         path=PROJECT_ROOT / "demo_projects" / "broken_python",
-        description="Demo project with Python errors",
+        description="Demo project with Python syntax errors",
     ),
     "ruff_issues": ProjectInfo(
         id="ruff_issues",
         name="Ruff Issues Demo",
         path=PROJECT_ROOT / "demo_projects" / "ruff_issues",
-        description="Demo project with style/lint issues",
+        description="Demo project with lint/style issues",
     ),
     "pytest_issues": ProjectInfo(
         id="pytest_issues",
         name="Pytest Issues Demo",
         path=PROJECT_ROOT / "demo_projects" / "pytest_issues",
         description="Demo project with failing tests",
-    ),
-    "current_project": ProjectInfo(
-        id="current_project",
-        name="AI Coding Assistant",
-        path=PROJECT_ROOT,
-        description="The main AI Coding Assistant project",
     ),
 }
 
