@@ -4,10 +4,11 @@ metadata:
   name: ai-coding-assistant-service
   namespace: ai-coding
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: ai-coding-assistant
   ports:
     - name: http
       port: 80
       targetPort: 8000
+      nodePort: 30080
