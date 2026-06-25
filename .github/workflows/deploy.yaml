@@ -1,102 +1,99 @@
 name: ai-coding-ci
 
 on:
-push:
-branches: ["main"]
-paths-ignore:
-- "k8s/**"
-- "argocd/**"
-workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "k8s/**"
+      - "argocd/**"
+  workflow_dispatch:
 
 concurrency:
-group: ai-coding-${{ github.ref }}
-cancel-in-progress: true
+  group: ai-coding-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
-contents: write
+  contents: write
 
 jobs:
-sonar_scan:
-name: SonarQube Scan
-runs-on: self-hosted
-timeout-minutes: 15
+  sonar_scan:
+    name: SonarQube Scan
+    runs-on: self-hosted
+    timeout-minutes: 15
 
-```
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-  - name: Check SonarQube connectivity
-    run: |
-      curl -fsS --connect-timeout 10 "${{ secrets.SONAR_HOST_URL }}/api/system/status"
+      - name: Check SonarQube connectivity
+        run: |
+          curl -fsS --connect-timeout 10 "${{ secrets.SONAR_HOST_URL }}/api/system/status"
 
-  - name: SonarQube Scan
-    uses: SonarSource/sonarqube-scan-action@v5
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  build_push_update_manifest:
+    name: Build, Push, and Update GitOps Manifest
+    runs-on: ubuntu-latest
+    needs: sonar_scan
+    timeout-minutes: 30
+
     env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-```
+      IMAGE: raedbari/ai-coding-assistant
+      TAG: ${{ github.sha }}
 
-build_push_update_manifest:
-name: Build, Push, and Update GitOps Manifest
-runs-on: ubuntu-latest
-needs: sonar_scan
-timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-```
-env:
-  IMAGE: raedbari/ai-coding-assistant
-  TAG: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-    with:
-      token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run basic checks
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+          python -m compileall -q app
+          python -m ruff check app
 
-  - name: Set up Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.11"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-  - name: Run basic checks
-    run: |
-      python -m pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install ruff
-      python -m compileall -q app
-      python -m ruff check app
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  - name: Set up Docker Buildx
-    uses: docker/setup-buildx-action@v3
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.TAG }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-  - name: Login to Docker Hub
-    uses: docker/login-action@v3
-    with:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Update Kubernetes image tag
+        run: |
+          sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|g" k8s/deployment.yaml
 
-  - name: Build and push Docker image
-    uses: docker/build-push-action@v6
-    with:
-      context: .
-      push: true
-      tags: |
-        ${{ env.IMAGE }}:${{ env.TAG }}
-        ${{ env.IMAGE }}:latest
-      cache-from: type=gha
-      cache-to: type=gha,mode=max
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
-  - name: Update Kubernetes image tag
-    run: |
-      sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|g" k8s/deployment.yaml
-
-      git config user.name "github-actions"
-      git config user.email "github-actions@github.com"
-
-      git add k8s/deployment.yaml
-      git commit -m "chore: update image to ${TAG} [skip ci]" || echo "No changes to commit"
-      git push
-```
+          git add k8s/deployment.yaml
+          git commit -m "chore: update image to ${TAG} [skip ci]" || echo "No changes to commit"
+          git push
