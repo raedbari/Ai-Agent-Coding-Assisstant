@@ -34,7 +34,7 @@ jobs:
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
-         with:
+        with:
           args: >
             -Dproject.settings=sonar-demo-project.properties
         env:
