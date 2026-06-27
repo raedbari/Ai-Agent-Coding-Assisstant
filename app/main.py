@@ -324,3 +324,39 @@ def apply_fix_for_issue(project_id: str, issue_id: str) -> ApplyPatchResponse:
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@app.get("/sonar/demo/issues")
+def list_demo_sonar_issues(limit: int = 50) -> dict:
+    try:
+        issues = fetch_demo_sonar_issues(limit=limit)
+
+        return {
+            "project_key": "ai-coding-demo-projects",
+            "total": len(issues),
+            "issues": issues,
+        }
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/sonar/demo/issues/{issue_key}/prompt")
+def get_demo_sonar_issue_prompt(issue_key: str) -> dict:
+    try:
+        issue = get_demo_sonar_issue(issue_key)
+
+        prompt_payload = build_sonar_issue_prompt(
+            issue=issue,
+            project_root=Path.cwd(),
+        )
+
+        return {
+            "issue": issue,
+            "prompt": prompt_payload["prompt"],
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

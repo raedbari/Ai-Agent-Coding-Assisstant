@@ -24,4 +24,16 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          env:
+            - name: SONAR_HOST_URL
+              value: "http://10.0.0.136:9000"
+
+            - name: SONAR_PROJECT_KEY
+              value: "ai-coding-demo-projects"
+
+            - name: SONAR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sonar-credentials
+                  key: SONAR_TOKEN
 
