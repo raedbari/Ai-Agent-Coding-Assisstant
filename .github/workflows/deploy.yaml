@@ -75,6 +75,29 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      
+      - name: Verify frontend files before Docker build
+        run: |
+          echo "Checking CSS in GitHub Actions workspace:"
+          sed -n '1,45p' app/static/style.css
+          grep -n -- "--bg:" app/static/style.css
+
+      - name: Build Docker image without cache
+        run: |
+          docker build --pull --no-cache \
+            -t ${IMAGE}:${TAG} \
+            -t ${IMAGE}:latest \
+            .
+
+      - name: Verify CSS inside Docker image
+        run: |
+          echo "Checking CSS inside built Docker image:"
+          docker run --rm ${IMAGE}:${TAG} sh -c "sed -n '1,45p' /app/static/style.css && grep -n -- '--bg:' /app/static/style.css"
+
+      - name: Push Docker image
+        run: |
+          docker push ${IMAGE}:${TAG}
+          docker push ${IMAGE}:latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
