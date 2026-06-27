@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: ai-coding-assistant
-          image: raedbari/ai-coding-assistant:edf4ae57cf993f5af71a8c3329935e066d63085f
+          image: raedbari/ai-coding-assistant:a878806f9369376b25f5e0b19390e258dbf97f3e
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
