@@ -73,23 +73,15 @@ jobs:
           python -m compileall -q app
           python -m ruff check app
 
-      - name: Verify no duplicate static folder
+      - name: Verify static layout
         run: |
+          test -f static/style.css
+
           if [ -d app/static ]; then
             echo "ERROR: Duplicate static folder found: app/static"
-            echo "Keep only static/ because the app serves /app/static inside Docker."
+            echo "Use only static/ at repository root."
             exit 1
           fi
-
-      - name: Verify served CSS before Docker build
-        run: |
-          echo "Checking served CSS in GitHub Actions workspace:"
-          test -f static/style.css
-          grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' static/style.css || true
-          grep -q 'THEME_VERSION:' static/style.css
-          grep -q '#2f3822' static/style.css
-          grep -q '#FDF5E6' static/style.css
-          grep -q '#5D3FD3' static/style.css
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -104,15 +96,44 @@ jobs:
             -t ${IMAGE}:latest \
             .
 
-      - name: Verify served CSS inside Docker image
+      - name: Smoke test Docker image
         run: |
-          echo "Checking served CSS inside built Docker image:"
-          docker run --rm ${IMAGE}:${TAG} sh -c "test -f /app/static/style.css"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' /app/static/style.css || true"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q 'THEME_VERSION:' /app/static/style.css"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#2f3822' /app/static/style.css"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#FDF5E6' /app/static/style.css"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#5D3FD3' /app/static/style.css"
+          CONTAINER_NAME="ai-coding-test-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            -p 18000:8000 \
+            ${IMAGE}:${TAG}
+
+          cleanup() {
+            docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+          }
+
+          trap cleanup EXIT
+
+          echo "Waiting for app to become ready..."
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:18000/health >/dev/null; then
+              echo "App is healthy."
+              break
+            fi
+
+            if [ "$i" -eq 30 ]; then
+              echo "App did not become healthy in time."
+              docker logs "$CONTAINER_NAME" || true
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          curl -fsS http://127.0.0.1:18000/static/style.css > /tmp/style.css
+          test -s /tmp/style.css
+
+          echo "Static CSS is served successfully."
 
       - name: Push Docker image
         run: |
