@@ -1,37 +1,37 @@
-/* THEME_VERSION: mossgreen-oldlace-iris-v5 */
+/* THEME_VERSION: dark-purple-gold-v1 */
 * {
   box-sizing: border-box;
 }
 
 :root {
-  --bg: #2f3822;              /* Dark Moss Green - خلفية الصفحة */
-  --panel: #FDF5E6;           /* Old Lace - الكروت */
-  --panel-dark: #f4ead8;
-  --panel-inner: #fbf0dc;
+  --bg: #0F0F12;              /* Black Gray - خلفية الصفحة */
+  --panel: #181820;           /* كروت داكنة */
+  --panel-dark: #121218;
+  --panel-inner: #1f1f2a;
 
-  --border: #8A9A5B;
-  --border-soft: #a8b47a;
+  --border: #2f2f3a;
+  --border-soft: #3b3b4a;
 
-  --text: #1f2417;
-  --muted: #5f6746;
-  --muted-strong: #3f472d;
+  --text: #ffffff;
+  --muted: #a7a7b3;
+  --muted-strong: #d1d1dc;
 
-  --primary: #5D3FD3;         /* Iris */
-  --primary-hover: #4b31b5;
+  --primary: #7C3AED;         /* Dark Purple */
+  --primary-hover: #6D28D9;
 
-  --accent: #8A9A5B;          /* Moss Green */
-  --accent-hover: #768747;
+  --accent: #F5C542;          /* Gold - الأزرار المهمة */
+  --accent-hover: #d9aa2f;
 
-  --success: #8A9A5B;
-  --success-bg: #eef3df;
+  --success: #3fbf75;
+  --success-bg: #102319;
 
-  --warning: #5D3FD3;
-  --warning-bg: #eeeafb;
+  --warning: #F5C542;
+  --warning-bg: #2b2412;
 
-  --error: #c0392b;
-  --error-bg: #fdecea;
+  --error: #d85c5c;
+  --error-bg: #281616;
 
-  --badge-bg: #5D3FD3;
+  --badge-bg: #7C3AED;
   --badge-text: #ffffff;
 }
 
@@ -62,12 +62,12 @@ body {
 
 .header h1 {
   margin: 0 0 8px;
-  color: #FDF5E6;
+  color: var(--accent);
 }
 
 .header p {
   margin: 0;
-  color: #f2e8d5;
+  color: var(--muted-strong);
   line-height: 1.7;
 }
 
@@ -75,9 +75,9 @@ body {
   min-width: 230px;
   padding: 18px;
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: 14px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .label {
@@ -94,13 +94,13 @@ body {
   border-radius: 14px;
   padding: 18px;
   margin-bottom: 18px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .card h2 {
   margin-top: 0;
   font-size: 20px;
-  color: var(--primary);
+  color: var(--accent);
 }
 
 .grid {
@@ -122,8 +122,9 @@ button {
 }
 
 select {
-  background: #fffaf0;
+  background: var(--panel-dark);
   color: var(--text);
+  border-color: var(--border-soft);
 }
 
 button {
@@ -166,22 +167,22 @@ button:disabled {
 }
 
 .step.active {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--accent);
+  color: var(--accent);
   background: var(--warning-bg);
   font-weight: 700;
 }
 
 .step.done {
   border-color: var(--success);
-  color: #4f6129;
+  color: #d6ffe4;
   background: var(--success-bg);
   font-weight: 700;
 }
 
 .step.failed {
   border-color: var(--error);
-  color: #8f1d1d;
+  color: #ffd9d9;
   background: var(--error-bg);
   font-weight: 700;
 }
@@ -218,7 +219,7 @@ pre,
   font-family: Consolas, monospace;
   direction: ltr;
   text-align: left;
-  background: #fffaf0;
+  background: #09090c;
   color: var(--text);
 }
 
@@ -265,7 +266,7 @@ pre,
 
 .issue-card h3 {
   margin: 0 0 8px;
-  color: var(--primary);
+  color: var(--accent);
 }
 
 .issue-card p {
@@ -320,7 +321,7 @@ pre,
 .technical-details summary,
 .issue-card summary {
   cursor: pointer;
-  color: var(--primary);
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -328,7 +329,7 @@ pre {
   direction: ltr;
   text-align: left;
   white-space: pre-wrap;
-  background: #fffaf0;
+  background: #09090c;
   color: var(--text);
   padding: 12px;
   border-radius: 10px;
@@ -355,7 +356,7 @@ pre {
 }
 
 .action-text {
-  color: var(--primary);
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -375,7 +376,7 @@ pre {
 .action-row button:first-child {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: #111111;
 }
 
 .action-row button:first-child:hover {
@@ -406,5 +407,5 @@ pre {
   .action-row button {
     width: 100%;
   }
-
 }
+
