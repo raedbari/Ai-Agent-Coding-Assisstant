@@ -79,14 +79,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Verify frontend files before Docker build
+      - name: Verify served CSS before Docker build
         run: |
-          echo "Checking CSS in GitHub Actions workspace:"
-          grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' app/static/style.css || true
-          grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v5' app/static/style.css
-          grep -q '#2f3822' app/static/style.css
-          grep -q '#FDF5E6' app/static/style.css
-          grep -q '#5D3FD3' app/static/style.css
+          echo "Checking served CSS in GitHub Actions workspace:"
+          grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' static/style.css || true
+          grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v6' static/style.css
+          grep -q '#2f3822' static/style.css
+          grep -q '#FDF5E6' static/style.css
+          grep -q '#5D3FD3' static/style.css
 
       - name: Build Docker image without cache
         run: |
@@ -95,11 +95,11 @@ jobs:
             -t ${IMAGE}:latest \
             .
 
-      - name: Verify CSS inside Docker image
+      - name: Verify served CSS inside Docker image
         run: |
-          echo "Checking CSS inside built Docker image:"
+          echo "Checking served CSS inside built Docker image:"
           docker run --rm ${IMAGE}:${TAG} sh -c "grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' /app/static/style.css || true"
-          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v5' /app/static/style.css"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v6' /app/static/style.css"
           docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#2f3822' /app/static/style.css"
           docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#FDF5E6' /app/static/style.css"
           docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#5D3FD3' /app/static/style.css"
@@ -120,4 +120,3 @@ jobs:
           git commit -m "chore: update image to ${TAG} [skip ci]" || echo "No changes to commit"
           git pull --rebase origin main
           git push
-          
