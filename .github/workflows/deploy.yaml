@@ -18,9 +18,9 @@ permissions:
 
 jobs:
   sonar_scan:
-    name: SonarQube Scan
+    name: SonarQube Scan demo_projects
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -28,11 +28,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify demo Sonar config
+        run: |
+          pwd
+          ls -la
+          test -f sonar-demo-project.properties
+          cat sonar-demo-project.properties
+
       - name: Check SonarQube connectivity
         run: |
           curl -fsS --connect-timeout 10 "${{ secrets.SONAR_HOST_URL }}/api/system/status"
 
-      - name: SonarQube Scan
+      - name: SonarQube Scan demo_projects only
         uses: SonarSource/sonarqube-scan-action@v6
         with:
           args: >
@@ -155,4 +162,3 @@ jobs:
           git pull --rebase origin main
           git push
 
-          
