@@ -79,6 +79,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
+          no-cache: true
+          pull: true
           context: .
           push: true
           tags: |
@@ -98,4 +100,3 @@ jobs:
           git commit -m "chore: update image to ${TAG} [skip ci]" || echo "No changes to commit"
           git push
 
-          
