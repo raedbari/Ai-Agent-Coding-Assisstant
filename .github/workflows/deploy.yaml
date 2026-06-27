@@ -53,6 +53,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Show current commit
+        run: |
+          echo "GitHub SHA: $GITHUB_SHA"
+          git rev-parse HEAD
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -67,20 +73,20 @@ jobs:
           python -m compileall -q app
           python -m ruff check app
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      
+
       - name: Verify frontend files before Docker build
         run: |
           echo "Checking CSS in GitHub Actions workspace:"
-          sed -n '1,45p' app/static/style.css
-          grep -n -- "--bg:" app/static/style.css
+          grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' app/static/style.css || true
+          grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v5' app/static/style.css
+          grep -q '#2f3822' app/static/style.css
+          grep -q '#FDF5E6' app/static/style.css
+          grep -q '#5D3FD3' app/static/style.css
 
       - name: Build Docker image without cache
         run: |
@@ -92,25 +98,16 @@ jobs:
       - name: Verify CSS inside Docker image
         run: |
           echo "Checking CSS inside built Docker image:"
-          docker run --rm ${IMAGE}:${TAG} sh -c "sed -n '1,45p' /app/static/style.css && grep -n -- '--bg:' /app/static/style.css"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -n 'THEME_VERSION\|--bg:\|--panel:\|--primary:' /app/static/style.css || true"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q 'THEME_VERSION: mossgreen-oldlace-iris-v5' /app/static/style.css"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#2f3822' /app/static/style.css"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#FDF5E6' /app/static/style.css"
+          docker run --rm ${IMAGE}:${TAG} sh -c "grep -q '#5D3FD3' /app/static/style.css"
 
       - name: Push Docker image
         run: |
           docker push ${IMAGE}:${TAG}
           docker push ${IMAGE}:latest
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          no-cache: true
-          pull: true
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ env.TAG }}
-            ${{ env.IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Update Kubernetes image tag
         run: |
@@ -121,5 +118,6 @@ jobs:
 
           git add k8s/deployment.yaml
           git commit -m "chore: update image to ${TAG} [skip ci]" || echo "No changes to commit"
+          git pull --rebase origin main
           git push
-
+          
