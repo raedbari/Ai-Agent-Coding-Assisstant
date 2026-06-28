@@ -188,18 +188,38 @@ async function loadProjects() {
     addLog("Failed to load projects.");
   }
 }
-
 function confirmProject() {
   selectedProjectId = projectSelect.value;
   selectedIssueId = null;
+  selectedSonarIssueKey = null;
 
   selectedProjectText.textContent = selectedProjectId;
 
-  setBox(toolRunsBox, "No scan has been run yet.", "muted");
-  renderSonarEntryPoint();
   setBox(repairPlanBox, "No fix has been proposed yet.", "muted");
   setBox(diffBox, "No diff has been built yet.", "muted");
   setBox(finalResultBox, "No patch has been applied yet.", "muted");
+
+  if (selectedProjectId === "sonar_demo") {
+    scanProjectButton.classList.add("hidden");
+    scanProjectButton.disabled = true;
+
+    setBox(
+      toolRunsBox,
+      "This project uses SonarQube results. Internal scan is disabled for this demo.",
+      "muted"
+    );
+
+    renderSonarEntryPoint();
+    addLog(`Selected SonarQube project: ${selectedProjectId}`);
+    setState(WorkflowState.PROJECT_SELECTED, "SonarQube project ready");
+    return;
+  }
+
+  scanProjectButton.classList.remove("hidden");
+  scanProjectButton.disabled = false;
+
+  setBox(toolRunsBox, "No internal scan has been run yet.", "muted");
+  setBox(issuesBox, "Run the internal scan to detect issues.", "muted");
 
   addLog(`Selected project: ${selectedProjectId}`);
   setState(WorkflowState.PROJECT_SELECTED, "Project ready to scan");
@@ -208,19 +228,13 @@ function confirmProject() {
 function changeProject() {
   selectedProjectId = null;
   selectedIssueId = null;
+  selectedSonarIssueKey = null;
+
+  scanProjectButton.classList.remove("hidden");
+  scanProjectButton.disabled = false;
 
   addLog("Returned to project selection.");
   setState(WorkflowState.INITIAL, "Select a project");
-}
-
-function toolDisplayName(tool) {
-  const names = {
-    compileall: "Compile check",
-    ruff: "Ruff",
-    pytest: "Pytest"
-  };
-
-  return names[tool] || tool;
 }
 
 function statusDisplayName(status) {
