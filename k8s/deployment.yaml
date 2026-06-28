@@ -36,4 +36,19 @@ spec:
                 secretKeyRef:
                   name: sonar-credentials
                   key: SONAR_TOKEN
+            
+            - name: LLM_PROVIDER
+              value: "deepseek"
+
+            - name: LLM_BASE_URL
+              value: "https://api.deepseek.com"
+
+            - name: LLM_MODEL
+              value: "deepseek-v4-flash"
+              
+            - name: LLM_API_KEY
+              valueFrom:
+               secretKeyRef:
+                 name: llm-credentials
+                 key: LLM_API_KEY
 
