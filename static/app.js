@@ -195,43 +195,38 @@ function confirmProject() {
 
   selectedProjectText.textContent = selectedProjectId;
 
-  setBox(repairPlanBox, "No fix has been proposed yet.", "muted");
-  setBox(diffBox, "No diff has been built yet.", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
-
-  if (selectedProjectId === "sonar_demo") {
-    scanProjectButton.classList.add("hidden");
-    scanProjectButton.disabled = true;
-
-    setBox(
-      toolRunsBox,
-      "This project uses SonarQube results. Internal scan is disabled for this demo.",
-      "muted"
-    );
-
-    renderSonarEntryPoint();
-    addLog(`Selected SonarQube project: ${selectedProjectId}`);
-    setState(WorkflowState.PROJECT_SELECTED, "SonarQube project ready");
-    return;
-  }
-
   scanProjectButton.classList.remove("hidden");
   scanProjectButton.disabled = false;
+  scanProjectButton.textContent = "Load Sonar issues";
+  scanProjectButton.onclick = loadSonarIssues;
 
-  setBox(toolRunsBox, "No internal scan has been run yet.", "muted");
-  setBox(issuesBox, "Run the internal scan to detect issues.", "muted");
+  setBox(
+    toolRunsBox,
+    "This workflow uses SonarQube only. Internal compile/ruff/pytest scan is disabled.",
+    "muted"
+  );
+
+  setBox(issuesBox, "Click “Load Sonar issues” to fetch issues from SonarQube.", "muted");
+  setBox(repairPlanBox, "Select a SonarQube issue first, then build a repair prompt.", "muted");
+  setBox(diffBox, "Diff generation is not enabled yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
 
   addLog(`Selected project: ${selectedProjectId}`);
-  setState(WorkflowState.PROJECT_SELECTED, "Project ready to scan");
+  setState(WorkflowState.PROJECT_SELECTED, "Project ready for SonarQube");
 }
-
 function changeProject() {
   selectedProjectId = null;
   selectedIssueId = null;
   selectedSonarIssueKey = null;
 
-  scanProjectButton.classList.remove("hidden");
-  scanProjectButton.disabled = false;
+  scanProjectButton.textContent = "Load Sonar issues";
+  scanProjectButton.onclick = loadSonarIssues;
+
+  setBox(toolRunsBox, "No SonarQube issues have been loaded yet.", "muted");
+  setBox(issuesBox, "Confirm the project, then load SonarQube issues.", "muted");
+  setBox(repairPlanBox, "Select a SonarQube issue first, then build a repair prompt.", "muted");
+  setBox(diffBox, "Diff generation is not enabled yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
 
   addLog("Returned to project selection.");
   setState(WorkflowState.INITIAL, "Select a project");
@@ -1093,7 +1088,7 @@ async function applyPatch() {
 
 confirmProjectButton.addEventListener("click", confirmProject);
 changeProjectButton.addEventListener("click", changeProject);
-scanProjectButton.addEventListener("click", scanProject);
+scanProjectButton.onclick = loadSonarIssues;
 
 renderWorkflow();
 renderControls();
