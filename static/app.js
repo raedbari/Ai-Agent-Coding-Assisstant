@@ -818,8 +818,59 @@ function renderSonarPrompt(issue, prompt) {
   const pre = document.createElement("pre");
   pre.textContent = prompt;
   repairPlanBox.appendChild(pre);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "action-row";
+
+  const button = document.createElement("button");
+  button.textContent = "Send prompt to DeepSeek";
+  button.onclick = () => proposeSonarFix(issue.issue_key);
+
+  wrapper.appendChild(button);
+  repairPlanBox.appendChild(wrapper);
 }
 
+async function proposeSonarFix(issueKey) {
+  setState(WorkflowState.PROPOSING_FIX, "Sending prompt to DeepSeek");
+  addLog(`Sending Sonar issue to DeepSeek: ${issueKey}`);
+
+  setBox(diffBox, "Waiting for DeepSeek response...", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+
+  try {
+    const result = await api(
+      `/sonar/demo/issues/${issueKey}/propose-fix`,
+      { method: "POST" }
+    );
+
+    addLog("DeepSeek returned a proposed fix.");
+    renderSonarModelOutput(result.issue, result.model_output);
+
+    setState(WorkflowState.DIFF_READY, "Review DeepSeek output");
+  } catch (error) {
+    setState(WorkflowState.ERROR, "DeepSeek request failed");
+    setBox(diffBox, `DeepSeek request failed:\n${error.message}`, "error");
+    addLog("DeepSeek request failed.");
+  }
+}
+
+
+function renderSonarModelOutput(issue, modelOutput) {
+  diffBox.innerHTML = "";
+  diffBox.className = "box";
+
+  const title = document.createElement("h3");
+  title.textContent = "DeepSeek proposed fix";
+  diffBox.appendChild(title);
+
+  const meta = document.createElement("p");
+  meta.textContent = `${issue.severity || "UNKNOWN"} · ${issue.rule_id || "unknown rule"} · ${issue.file_path || "unknown file"}`;
+  diffBox.appendChild(meta);
+
+  const pre = document.createElement("pre");
+  pre.textContent = modelOutput || "DeepSeek returned an empty response.";
+  diffBox.appendChild(pre);
+}
 
 
 async function scanProject() {
