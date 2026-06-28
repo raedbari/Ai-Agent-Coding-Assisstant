@@ -12,8 +12,8 @@
       <div>
         <h1>AI Coding Assistant</h1>
         <p>
-          Load SonarQube issues, review the detected problem, build a targeted
-          repair prompt, then continue toward an AI-generated fix.
+          Load issues reported by SonarQube, generate a dynamic repair prompt
+          from those issues, review the DeepSeek diff, then apply the patch after approval.
         </p>
       </div>
 
@@ -43,20 +43,22 @@
             Selected project:
             <strong id="selectedProjectText"></strong>
           </p>
-          <button id="changeProjectButton">Change project</button>
 
-          <!-- Kept hidden to avoid breaking old JavaScript references. -->
-          <button id="scanProjectButton" class="hidden" disabled>
-            Internal scan disabled
-          </button>
+          <div class="action-row">
+            <button id="scanProjectButton" class="hidden" disabled>
+              Load SonarQube issues
+            </button>
+
+            <button id="changeProjectButton">
+              Change project
+            </button>
+          </div>
         </div>
       </div>
 
       <div class="card">
         <h2>Activity log</h2>
-        <div id="activityLog" class="log">
-          No action has started yet.
-        </div>
+        <div id="activityLog" class="log">No action started yet.</div>
       </div>
     </section>
 
@@ -75,16 +77,16 @@
     </section>
 
     <section class="card">
-      <h2>4. Repair prompt</h2>
+      <h2>4. Dynamic repair prompt</h2>
       <div id="repairPlanBox" class="box muted">
-        Select a SonarQube issue first, then build a repair prompt.
+        No repair prompt has been generated yet.
       </div>
     </section>
 
     <section class="card">
       <h2>5. Diff review</h2>
       <div id="diffBox" class="box muted">
-        Diff generation is not enabled yet.
+        No diff has been proposed yet.
       </div>
     </section>
 
