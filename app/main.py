@@ -392,7 +392,7 @@ def get_demo_sonar_issue_prompt(issue_key: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from 
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
         
 
 @app.post("/sonar/demo/issues/{issue_key}/propose-fix")
