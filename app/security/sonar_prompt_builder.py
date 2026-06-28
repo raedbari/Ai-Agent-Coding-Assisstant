@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 
 def _safe_resolve(project_root: Path, relative_path: str) -> Path:
@@ -21,6 +22,9 @@ def _safe_resolve(project_root: Path, relative_path: str) -> Path:
 def _read_code_context(file_path: Path, line: int | None, radius: int = 25) -> str:
     lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
+    if not lines:
+        return ""
+
     if not line:
         start = 1
         end = min(len(lines), radius * 2)
@@ -38,7 +42,7 @@ def _read_code_context(file_path: Path, line: int | None, radius: int = 25) -> s
 
 
 def build_sonar_issue_prompt(
-    issue: dict,
+    issue: dict[str, Any],
     project_root: Path,
     context_radius: int = 25,
 ) -> dict[str, str]:
@@ -52,27 +56,43 @@ def build_sonar_issue_prompt(
 
     language_hint = file_path.suffix.lstrip(".") or "text"
 
-    prompt = f"""You are fixing a static analysis issue reported by SonarQube.
+    tags = issue.get("tags") or []
+    tags_text = ", ".join(tags) if tags else "none"
 
-Rules:
-- Fix only the reported issue.
-- Do not rewrite unrelated code.
-- Preserve existing behavior unless the issue is specifically about wrong behavior.
-- Do not invent missing requirements.
-- Return a unified diff only.
-- If there is not enough context to safely fix the issue, explain why instead of inventing a patch.
+    prompt_parts = [
+        "You are fixing a static analysis issue reported by SonarQube.",
+        "",
+        "Rules:",
+        "- Fix only the reported issue.",
+        "- Do not rewrite unrelated code.",
+        "- Preserve existing behavior unless the issue is specifically about wrong behavior.",
+        "- Do not invent missing requirements.",
+        "- Return a unified diff only.",
+        "- If there is not enough context to safely fix the issue, explain why instead of inventing a patch.",
+        "",
+        "Issue:",
+        f"- Source: {issue['source']}",
+        f"- Rule: {issue['rule_id']}",
+        f"- Severity: {issue['severity']}",
+        f"- Type: {issue['type']}",
+        f"- Message: {issue['message']}",
+        f"- File: {issue['file_path']}",
+        f"- Start line: {issue['start_line']}",
+        f"- End line: {issue['end_line']}",
+        f"- Tags: {tags_text}",
+        "",
+        f"Code context language: {language_hint}",
+        "Code context:",
+        "<<<CODE_CONTEXT_START>>>",
+        code_context,
+        "<<<CODE_CONTEXT_END>>>",
+        "",
+    ]
 
-Issue:
-- Source: {issue["source"]}
-- Rule: {issue["rule_id"]}
-- Severity: {issue["severity"]}
-- Type: {issue["type"]}
-- Message: {issue["message"]}
-- File: {issue["file_path"]}
-- Start line: {issue["start_line"]}
-- End line: {issue["end_line"]}
-- Tags: {", ".join(issue["tags"]) if issue.get("tags") else "none"}
+    prompt = "\n".join(prompt_parts)
 
-Code context:
-```{language_hint}
-{code_context}
+    return {
+        "issue_key": issue["issue_key"],
+        "file_path": issue["file_path"],
+        "prompt": prompt,
+    }
