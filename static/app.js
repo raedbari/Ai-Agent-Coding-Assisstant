@@ -36,6 +36,7 @@ const ToolStatus = {
 let state = WorkflowState.INITIAL;
 let selectedProjectId = null;
 let selectedIssueId = null;
+let selectedSonarIssueKey = null;
 
 const currentStatus = document.getElementById("currentStatus");
 const workflowSteps = document.getElementById("workflowSteps");
@@ -195,7 +196,7 @@ function confirmProject() {
   selectedProjectText.textContent = selectedProjectId;
 
   setBox(toolRunsBox, "No scan has been run yet.", "muted");
-  setBox(issuesBox, "Scan the project to detect issues.", "muted");
+  renderSonarEntryPoint();
   setBox(repairPlanBox, "No fix has been proposed yet.", "muted");
   setBox(diffBox, "No diff has been built yet.", "muted");
   setBox(finalResultBox, "No patch has been applied yet.", "muted");
@@ -660,6 +661,155 @@ function renderIssues(issues) {
     );
   }
 }
+
+
+function renderSonarEntryPoint() {
+  issuesBox.innerHTML = "";
+  issuesBox.className = "box";
+
+  const text = document.createElement("p");
+  text.textContent = "You can scan this project with the internal tools, or load existing SonarQube issues.";
+  issuesBox.appendChild(text);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "action-row";
+
+  const button = document.createElement("button");
+  button.textContent = "Load Sonar issues";
+  button.onclick = loadSonarIssues;
+
+  wrapper.appendChild(button);
+  issuesBox.appendChild(wrapper);
+}
+
+
+async function loadSonarIssues() {
+  selectedSonarIssueKey = null;
+
+  setState(WorkflowState.SCANNING, "Loading Sonar issues");
+  addLog("Loading SonarQube issues.");
+  setBox(issuesBox, "Loading SonarQube issues...", "muted");
+  setBox(repairPlanBox, "No Sonar prompt has been built yet.", "muted");
+  setBox(diffBox, "No diff has been built yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+
+  try {
+    const result = await api("/sonar/demo/issues");
+
+    addLog(`${result.total} SonarQube issue(s) loaded.`);
+    renderSonarIssues(result.issues || []);
+
+    if (result.issues && result.issues.length) {
+      setState(WorkflowState.SCAN_DONE, "Select a Sonar issue");
+    } else {
+      setState(WorkflowState.VERIFY_DONE, "No Sonar issues found");
+    }
+  } catch (error) {
+    setState(WorkflowState.ERROR, "Failed to load Sonar issues");
+    setBox(issuesBox, `Failed to load Sonar issues:\n${error.message}`, "error");
+    addLog("Failed to load SonarQube issues.");
+  }
+}
+
+
+function renderSonarIssues(issues) {
+  issuesBox.innerHTML = "";
+
+  if (!issues.length) {
+    issuesBox.className = "box success";
+    issuesBox.textContent = "No SonarQube issues found.";
+    return;
+  }
+
+  const hasCritical = issues.some((issue) => issue.severity === "CRITICAL" || issue.severity === "BLOCKER");
+  issuesBox.className = hasCritical ? "box error" : "box warning";
+
+  const title = document.createElement("h3");
+  title.textContent = "SonarQube issues";
+  issuesBox.appendChild(title);
+
+  for (const issue of issues) {
+    issuesBox.appendChild(createSonarIssueCard(issue));
+  }
+}
+
+
+function createSonarIssueCard(issue) {
+  const card = document.createElement("div");
+  card.className = "issue-card";
+
+  const title = document.createElement("h4");
+  title.textContent = `${issue.severity || "UNKNOWN"} · ${issue.rule_id || "unknown rule"}`;
+  card.appendChild(title);
+
+  const message = document.createElement("p");
+  message.textContent = issue.message || "No message.";
+  card.appendChild(message);
+
+  const file = document.createElement("p");
+  file.textContent = `File: ${issue.file_path || "Unknown file"}:${issue.line || issue.start_line || "?"}`;
+  card.appendChild(file);
+
+  const type = document.createElement("p");
+  type.textContent = `Type: ${issue.type || "Unknown"} · Source: SonarQube`;
+  card.appendChild(type);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "action-row";
+
+  const button = document.createElement("button");
+  button.textContent = "Build Sonar prompt";
+  button.onclick = () => buildSonarPrompt(issue.issue_key);
+
+  wrapper.appendChild(button);
+  card.appendChild(wrapper);
+
+  return card;
+}
+
+
+async function buildSonarPrompt(issueKey) {
+  selectedSonarIssueKey = issueKey;
+
+  setState(WorkflowState.PROPOSING_FIX, "Building Sonar prompt");
+  addLog(`Selected Sonar issue: ${issueKey}`);
+  setBox(repairPlanBox, "Building Sonar prompt...", "muted");
+  setBox(diffBox, "No diff has been built yet.", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+
+  try {
+    const result = await api(`/sonar/demo/issues/${issueKey}/prompt`);
+
+    addLog("Sonar prompt built.");
+    renderSonarPrompt(result.issue, result.prompt);
+
+    setState(WorkflowState.FIX_PROPOSED, "Sonar prompt ready");
+  } catch (error) {
+    setState(WorkflowState.ERROR, "Failed to build Sonar prompt");
+    setBox(repairPlanBox, `Failed to build Sonar prompt:\n${error.message}`, "error");
+    addLog("Failed to build Sonar prompt.");
+  }
+}
+
+
+function renderSonarPrompt(issue, prompt) {
+  repairPlanBox.innerHTML = "";
+  repairPlanBox.className = "box";
+
+  const title = document.createElement("h3");
+  title.textContent = "Sonar repair prompt";
+  repairPlanBox.appendChild(title);
+
+  const meta = document.createElement("p");
+  meta.textContent = `${issue.severity || "UNKNOWN"} · ${issue.rule_id || "unknown rule"} · ${issue.file_path || "unknown file"}`;
+  repairPlanBox.appendChild(meta);
+
+  const pre = document.createElement("pre");
+  pre.textContent = prompt;
+  repairPlanBox.appendChild(pre);
+}
+
+
 
 async function scanProject() {
   setState(WorkflowState.SCANNING, "Scanning project");
