@@ -12,9 +12,8 @@
       <div>
         <h1>AI Coding Assistant</h1>
         <p>
-          Select a project, scan it with internal tools or load SonarQube issues,
-          review the detected problem, build a repair prompt, review the diff,
-          and then apply the patch only after approval.
+          Load SonarQube issues, review the detected problem, build a targeted
+          repair prompt, then continue toward an AI-generated fix.
         </p>
       </div>
 
@@ -45,7 +44,11 @@
             <strong id="selectedProjectText"></strong>
           </p>
           <button id="changeProjectButton">Change project</button>
-          <button id="scanProjectButton">Run internal scan</button>
+
+          <!-- Kept hidden to avoid breaking old JavaScript references. -->
+          <button id="scanProjectButton" class="hidden" disabled>
+            Internal scan disabled
+          </button>
         </div>
       </div>
 
@@ -58,30 +61,30 @@
     </section>
 
     <section class="card">
-      <h2>2. Internal scan results</h2>
+      <h2>2. SonarQube status</h2>
       <div id="toolRunsBox" class="box muted">
-        No internal scan has been run yet.
+        No SonarQube issues have been loaded yet.
       </div>
     </section>
 
     <section class="card">
-      <h2>3. Detected issues</h2>
+      <h2>3. SonarQube issues</h2>
       <div id="issuesBox" class="box muted">
-        Confirm a project, then run an internal scan or load SonarQube issues.
+        Confirm the project, then load SonarQube issues.
       </div>
     </section>
 
     <section class="card">
-      <h2>4. Fix plan / Sonar prompt</h2>
+      <h2>4. Repair prompt</h2>
       <div id="repairPlanBox" class="box muted">
-        Select an issue first, then request a fix proposal or build a Sonar prompt.
+        Select a SonarQube issue first, then build a repair prompt.
       </div>
     </section>
 
     <section class="card">
       <h2>5. Diff review</h2>
       <div id="diffBox" class="box muted">
-        No diff has been built yet.
+        Diff generation is not enabled yet.
       </div>
     </section>
 
