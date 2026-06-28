@@ -34,6 +34,12 @@ from app.schemas.api import (
     ToolRunItem,
 )
 
+from app.security.sonar_client import (
+    fetch_demo_sonar_issues,
+    get_demo_sonar_issue,
+)
+from app.security.sonar_prompt_builder import build_sonar_issue_prompt
+
 app = FastAPI(
     title="AI Coding Assistant",
     version="0.1.0",
