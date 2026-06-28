@@ -9,6 +9,9 @@ from app.patching.diff_builder import (
     apply_patches_to_project,
     build_patches_from_repair_plan,
 )
+
+from app.security.sonar_project_llm_fix import propose_project_sonar_fix_with_llm
+
 from app.projects.issue_store import (
     get_project_issue,
     get_project_issues,
@@ -407,6 +410,67 @@ def propose_demo_sonar_fix(issue_key: str) -> dict:
 
         return {
             "issue": issue,
+            "prompt": result["prompt"],
+            "model_output": result["model_output"],
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+def filter_sonar_issues_by_project(
+    issues: list[dict],
+    project_id: str,
+) -> list[dict]:
+    project = get_project(project_id)
+
+    project_root = Path.cwd().resolve()
+    project_path = project.path.resolve()
+
+    try:
+        file_prefix = project_path.relative_to(project_root).as_posix()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Project path is outside application root: {project.path}"
+        ) from exc
+
+    file_prefix = file_prefix.rstrip("/") + "/"
+
+    return [
+        issue
+        for issue in issues
+        if issue.get("file_path", "").startswith(file_prefix)
+    ]
+
+@app.post("/sonar/demo/projects/{project_id}/propose-fix")
+def propose_demo_sonar_project_fix(project_id: str) -> dict:
+    try:
+        all_issues = fetch_demo_sonar_issues(limit=100)
+        project_issues = filter_sonar_issues_by_project(
+            issues=all_issues,
+            project_id=project_id,
+        )
+
+        if not project_issues:
+            return {
+                "project_id": project_id,
+                "total": 0,
+                "issues": [],
+                "prompt": "",
+                "model_output": "No SonarQube issues found for this project.",
+            }
+
+        result = propose_project_sonar_fix_with_llm(
+            issues=project_issues,
+            project_root=Path.cwd(),
+        )
+
+        return {
+            "project_id": project_id,
+            "total": len(project_issues),
+            "issues": project_issues,
             "prompt": result["prompt"],
             "model_output": result["model_output"],
         }
