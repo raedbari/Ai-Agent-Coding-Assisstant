@@ -708,7 +708,9 @@ async function loadSonarIssues() {
   setBox(finalResultBox, "No patch has been applied yet.", "muted");
 
   try {
-    const result = await api("/sonar/demo/issues");
+    const result = await api(
+  `/sonar/demo/issues?project_id=${encodeURIComponent(selectedProjectId)}`
+);
 
     addLog(`${result.total} SonarQube issue(s) loaded.`);
     renderSonarIssues(result.issues || []);

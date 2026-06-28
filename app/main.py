@@ -332,19 +332,46 @@ def apply_fix_for_issue(project_id: str, issue_id: str) -> ApplyPatchResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @app.get("/sonar/demo/issues")
-def list_demo_sonar_issues(limit: int = 50) -> dict:
+def list_demo_sonar_issues(
+    limit: int = 50,
+    project_id: str | None = None,
+) -> dict:
     try:
         issues = fetch_demo_sonar_issues(limit=limit)
 
+        if project_id:
+            project = get_project(project_id)
+
+            project_root = Path.cwd().resolve()
+            project_path = project.path.resolve()
+
+            try:
+                file_prefix = project_path.relative_to(project_root).as_posix()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Project path is outside application root: {project.path}"
+                ) from exc
+
+            file_prefix = file_prefix.rstrip("/") + "/"
+
+            issues = [
+                issue
+                for issue in issues
+                if issue.get("file_path", "").startswith(file_prefix)
+            ]
+
         return {
             "project_key": "ai-coding-demo-projects",
+            "project_id": project_id,
             "total": len(issues),
             "issues": issues,
         }
 
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
 
 @app.get("/sonar/demo/issues/{issue_key}/prompt")
 def get_demo_sonar_issue_prompt(issue_key: str) -> dict:

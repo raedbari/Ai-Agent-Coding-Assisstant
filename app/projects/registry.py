@@ -14,32 +14,23 @@ class ProjectInfo:
 
 
 ALLOWED_PROJECTS: dict[str, ProjectInfo] = {
-    "broken_python": ProjectInfo(
-        id="broken_python",
-        name="Broken Python Demo",
-        path=PROJECT_ROOT / "demo_projects" / "broken_python",
-        description="Demo project with Python syntax errors",
+    "bug_issues": ProjectInfo(
+        id="bug_issues",
+        name="Bug Issues Demo",
+        path=PROJECT_ROOT / "demo_projects" / "bug_issues",
+        description="Demo files with logical bugs detected by SonarQube.",
     ),
-    "ruff_issues": ProjectInfo(
-        id="ruff_issues",
-        name="Ruff Issues Demo",
-        path=PROJECT_ROOT / "demo_projects" / "ruff_issues",
-        description="Demo project with lint/style issues",
+    "security_issues": ProjectInfo(
+        id="security_issues",
+        name="Security Issues Demo",
+        path=PROJECT_ROOT / "demo_projects" / "security_issues",
+        description="Demo files with security issues detected by SonarQube.",
     ),
-    "pytest_issues": ProjectInfo(
-        id="pytest_issues",
-        name="Pytest Issues Demo",
-        path=PROJECT_ROOT / "demo_projects" / "pytest_issues",
-        description="Demo project with failing tests",
-    ),
-    "sonar_demo": ProjectInfo(
-        id="sonar_demo",
-        name="SonarQube Demo",
-        path=PROJECT_ROOT / "demo_projects",
-        description=(
-            "Demo project scanned by SonarQube with logic, security, "
-            "and maintainability issues."
-        ),
+    "quality_issues": ProjectInfo(
+        id="quality_issues",
+        name="Quality Issues Demo",
+        path=PROJECT_ROOT / "demo_projects" / "quality_issues",
+        description="Demo files with maintainability and quality issues.",
     ),
 }
 
