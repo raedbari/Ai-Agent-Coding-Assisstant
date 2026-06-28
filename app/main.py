@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-
+from app.security.sonar_llm_fix import propose_sonar_fix_with_llm
 from app.agent.graph import build_repair_graph
 from app.patching.diff_builder import (
     apply_patches_to_project,
@@ -386,6 +386,29 @@ def get_demo_sonar_issue_prompt(issue_key: str) -> dict:
         return {
             "issue": issue,
             "prompt": prompt_payload["prompt"],
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from 
+        
+
+@app.post("/sonar/demo/issues/{issue_key}/propose-fix")
+def propose_demo_sonar_fix(issue_key: str) -> dict:
+    try:
+        issue = get_demo_sonar_issue(issue_key)
+
+        result = propose_sonar_fix_with_llm(
+            issue=issue,
+            project_root=Path.cwd(),
+        )
+
+        return {
+            "issue": issue,
+            "prompt": result["prompt"],
+            "model_output": result["model_output"],
         }
 
     except ValueError as exc:
