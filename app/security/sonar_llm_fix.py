@@ -59,7 +59,9 @@ def propose_sonar_fix_with_llm(
         ]
     )
 
-    model_output = _message_content_to_text(response.content).strip()
+    model_output = _strip_markdown_code_fence(
+    _message_content_to_text(response.content)
+)
 
     return {
         "issue_key": issue["issue_key"],
@@ -67,3 +69,17 @@ def propose_sonar_fix_with_llm(
         "prompt": prompt_payload["prompt"],
         "model_output": model_output,
     }
+
+def _strip_markdown_code_fence(text: str) -> str:
+    cleaned = text.strip()
+
+    if cleaned.startswith("```diff"):
+        cleaned = cleaned.removeprefix("```diff").strip()
+
+    elif cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```").strip()
+
+    if cleaned.endswith("```"):
+        cleaned = cleaned.removesuffix("```").strip()
+
+    return cleaned

@@ -744,6 +744,16 @@ function renderSonarIssues(issues) {
   }
 }
 
+const projectFixWrapper = document.createElement("div");
+projectFixWrapper.className = "action-row";
+
+const projectFixButton = document.createElement("button");
+projectFixButton.textContent = "Fix project from SonarQube issues";
+projectFixButton.onclick = proposeProjectSonarFix;
+
+projectFixWrapper.appendChild(projectFixButton);
+issuesBox.appendChild(projectFixWrapper);
+
 
 function createSonarIssueCard(issue) {
   const card = document.createElement("div");
@@ -1135,6 +1145,70 @@ async function applyPatch() {
     setBox(finalResultBox, `Failed to apply patch:\n${error.message}`, "error");
     addLog("Failed to apply patch.");
   }
+}
+
+async function proposeProjectSonarFix() {
+  if (!selectedProjectId) {
+    setBox(diffBox, "Select a project first.", "error");
+    return;
+  }
+
+  setState(WorkflowState.PROPOSING_FIX, "Sending Sonar project issues to DeepSeek");
+  addLog(`Sending SonarQube issues for project: ${selectedProjectId}`);
+
+  setBox(repairPlanBox, "Building dynamic SonarQube prompt...", "muted");
+  setBox(diffBox, "Waiting for DeepSeek response...", "muted");
+  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+
+  try {
+    const result = await api(
+      `/sonar/demo/projects/${encodeURIComponent(selectedProjectId)}/propose-fix`,
+      { method: "POST" }
+    );
+
+    addLog(`DeepSeek returned a project-level fix for ${result.total} SonarQube issue(s).`);
+
+    renderProjectSonarPrompt(result.prompt);
+    renderProjectSonarModelOutput(result);
+
+    setState(WorkflowState.DIFF_READY, "Review DeepSeek output");
+  } catch (error) {
+    setState(WorkflowState.ERROR, "DeepSeek request failed");
+    setBox(diffBox, `DeepSeek request failed:\n${error.message}`, "error");
+    addLog("DeepSeek request failed.");
+  }
+}
+
+
+function renderProjectSonarPrompt(prompt) {
+  repairPlanBox.innerHTML = "";
+  repairPlanBox.className = "box";
+
+  const title = document.createElement("h3");
+  title.textContent = "Dynamic SonarQube repair prompt";
+  repairPlanBox.appendChild(title);
+
+  const pre = document.createElement("pre");
+  pre.textContent = prompt || "No prompt was generated.";
+  repairPlanBox.appendChild(pre);
+}
+
+
+function renderProjectSonarModelOutput(result) {
+  diffBox.innerHTML = "";
+  diffBox.className = "box";
+
+  const title = document.createElement("h3");
+  title.textContent = "DeepSeek project-level proposed fix";
+  diffBox.appendChild(title);
+
+  const meta = document.createElement("p");
+  meta.textContent = `${result.project_id} · ${result.total} SonarQube issue(s)`;
+  diffBox.appendChild(meta);
+
+  const pre = document.createElement("pre");
+  pre.textContent = result.model_output || "DeepSeek returned an empty response.";
+  diffBox.appendChild(pre);
 }
 
 confirmProjectButton.addEventListener("click", confirmProject);
