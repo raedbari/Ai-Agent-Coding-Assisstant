@@ -1,60 +1,60 @@
-from typing import Any
-
-from app.scanner.project_issue_scanner import ScanIssue
-
-
-_SCAN_RESULTS: dict[str, list[ScanIssue]] = {}
-_REPAIR_PLANS: dict[tuple[str, str], dict[str, Any]] = {}
-_PATCHES: dict[tuple[str, str], list[dict[str, Any]]] = {}
+from dataclasses import dataclass
+from pathlib import Path
 
 
-def save_project_issues(project_id: str, issues: list[ScanIssue]) -> None:
-    _SCAN_RESULTS[project_id] = issues
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def get_project_issues(project_id: str) -> list[ScanIssue]:
-    return _SCAN_RESULTS.get(project_id, [])
+@dataclass(frozen=True)
+class ProjectInfo:
+    id: str
+    name: str
+    path: Path
+    description: str
 
 
-def get_project_issue(project_id: str, issue_id: str) -> ScanIssue:
-    issues = get_project_issues(project_id)
+ALLOWED_PROJECTS: dict[str, ProjectInfo] = {
+    "broken_python": ProjectInfo(
+        id="broken_python",
+        name="Broken Python Demo",
+        path=PROJECT_ROOT / "demo_projects" / "broken_python",
+        description="Demo project with Python syntax errors",
+    ),
+    "ruff_issues": ProjectInfo(
+        id="ruff_issues",
+        name="Ruff Issues Demo",
+        path=PROJECT_ROOT / "demo_projects" / "ruff_issues",
+        description="Demo project with lint/style issues",
+    ),
+    "pytest_issues": ProjectInfo(
+        id="pytest_issues",
+        name="Pytest Issues Demo",
+        path=PROJECT_ROOT / "demo_projects" / "pytest_issues",
+        description="Demo project with failing tests",
+    ),
+    "sonar_demo": ProjectInfo(
+        id="sonar_demo",
+        name="SonarQube Demo",
+        path=PROJECT_ROOT / "demo_projects",
+        description=(
+            "Demo project scanned by SonarQube with logic, security, "
+            "and maintainability issues."
+        ),
+    ),
+}
 
-    for issue in issues:
-        if issue.id == issue_id:
-            return issue
 
-    raise ValueError(f"Issue not found: {issue_id}")
+def list_projects() -> list[ProjectInfo]:
+    return list(ALLOWED_PROJECTS.values())
 
 
-def save_repair_plan(
-    project_id: str,
-    issue_id: str,
-    repair_plan: dict[str, Any],
-) -> None:
-    _REPAIR_PLANS[(project_id, issue_id)] = repair_plan
-
-
-def get_repair_plan(project_id: str, issue_id: str) -> dict[str, Any]:
+def get_project(project_id: str) -> ProjectInfo:
     try:
-        return _REPAIR_PLANS[(project_id, issue_id)]
+        project = ALLOWED_PROJECTS[project_id]
     except KeyError as exc:
-        raise ValueError(
-            "No repair plan found for this issue. Run propose-fix first."
-        ) from exc
+        raise ValueError(f"Unknown project id: {project_id}") from exc
 
+    if not project.path.exists():
+        raise FileNotFoundError(f"Project path does not exist: {project.path}")
 
-def save_project_patches(
-    project_id: str,
-    issue_id: str,
-    patches: list[dict[str, Any]],
-) -> None:
-    _PATCHES[(project_id, issue_id)] = patches
-
-
-def get_project_patches(project_id: str, issue_id: str) -> list[dict[str, Any]]:
-    try:
-        return _PATCHES[(project_id, issue_id)]
-    except KeyError as exc:
-        raise ValueError(
-            "No patches found for this issue. Run build-diff first."
-        ) from exc
+    return project
