@@ -9,7 +9,8 @@ from app.patching.diff_builder import (
     apply_patches_to_project,
     build_patches_from_repair_plan,
 )
-
+from pydantic import BaseModel
+from app.security.sonar_patch_apply import apply_sonar_project_diff
 from app.security.sonar_project_llm_fix import propose_project_sonar_fix_with_llm
 
 from app.projects.issue_store import (
@@ -53,6 +54,8 @@ STATIC_DIR = PROJECT_ROOT / "static"
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+class ApplySonarProjectFixRequest(BaseModel):
+    model_output: str
 
 def to_tool_run_item(tool_run: ToolRun) -> ToolRunItem:
     return ToolRunItem(
@@ -476,6 +479,34 @@ def propose_demo_sonar_project_fix(project_id: str) -> dict:
         }
 
     except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@app.post("/sonar/demo/projects/{project_id}/apply-fix")
+def apply_demo_sonar_project_fix(
+    project_id: str,
+    request: ApplySonarProjectFixRequest,
+) -> dict:
+    try:
+        project = get_project(project_id)
+
+        result = apply_sonar_project_diff(
+            diff_text=request.model_output,
+            project_root=Path.cwd(),
+            project_path=project.path,
+        )
+
+        return {
+            "project_id": project_id,
+            **result,
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     except Exception as exc:
