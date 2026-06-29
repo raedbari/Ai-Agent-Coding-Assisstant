@@ -17,6 +17,50 @@ def strip_markdown_code_fence(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+def normalize_unified_diff_for_git_apply(diff_text: str) -> str:
+    """
+    LLMs sometimes generate visually correct diffs that are invalid for git apply.
+    The common problem is missing leading spaces on context lines or blank context lines.
+
+    This normalizes hunk body lines so git can parse the unified diff.
+    """
+    normalized_lines: list[str] = []
+    inside_hunk = False
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            inside_hunk = False
+            normalized_lines.append(line)
+            continue
+
+        if not inside_hunk and (
+            line.startswith("index ")
+            or line.startswith("--- ")
+            or line.startswith("+++ ")
+            or line.startswith("new file mode ")
+            or line.startswith("deleted file mode ")
+        ):
+            normalized_lines.append(line)
+            continue
+
+        if line.startswith("@@ "):
+            inside_hunk = True
+            normalized_lines.append(line)
+            continue
+
+        if inside_hunk:
+            if line == "":
+                normalized_lines.append(" ")
+            elif line[0] in {" ", "+", "-", "\\"}:
+                normalized_lines.append(line)
+            else:
+                normalized_lines.append(f" {line}")
+            continue
+
+        normalized_lines.append(line)
+
+    return "\n".join(normalized_lines).strip() + "\n"
+    
 def _normalize_diff_path(path_text: str) -> str:
     path = path_text.strip().split()[0]
 

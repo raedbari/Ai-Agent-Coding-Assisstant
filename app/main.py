@@ -49,6 +49,23 @@ app = FastAPI(
     version="0.1.0",
 )
 
+@app.middleware("http")
+async def disable_cache_for_frontend(request: Request, call_next):
+    response = await call_next(request)
+
+    path = request.url.path
+
+    if path == "/" or path == "/index.html" or path.startswith("/static/"):
+        response.headers["Cache-Control"] = (
+            "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        )
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Surrogate-Control"] = "no-store"
+
+    return response
+
+    
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = PROJECT_ROOT / "static"
 
