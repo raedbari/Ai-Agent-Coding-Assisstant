@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.security.sonar_llm_fix import propose_sonar_fix_with_llm
@@ -65,7 +65,7 @@ async def disable_cache_for_frontend(request: Request, call_next):
 
     return response
 
-    
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = PROJECT_ROOT / "static"
 

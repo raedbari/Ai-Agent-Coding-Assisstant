@@ -60,7 +60,7 @@ def normalize_unified_diff_for_git_apply(diff_text: str) -> str:
         normalized_lines.append(line)
 
     return "\n".join(normalized_lines).strip() + "\n"
-    
+
 def _normalize_diff_path(path_text: str) -> str:
     path = path_text.strip().split()[0]
 
@@ -144,7 +144,9 @@ def apply_sonar_project_diff(
     project_root: Path,
     project_path: Path,
 ) -> dict:
-    cleaned_diff = strip_markdown_code_fence(diff_text)
+    cleaned_diff = normalize_unified_diff_for_git_apply(
+    strip_markdown_code_fence(diff_text)
+)
 
     if not cleaned_diff:
         return {
