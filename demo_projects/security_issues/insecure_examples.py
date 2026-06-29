@@ -20,7 +20,7 @@ def ping_host(host: str) -> bytes:
 
 
 def authenticate(username: str, password: str) -> bool:
-    admin_password = "admin123"
+    admin_password = os.environ.get("ADMIN_PASSWORD")
 
     if username == "admin" and password == admin_password:
         return True
