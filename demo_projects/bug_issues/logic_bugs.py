@@ -13,7 +13,7 @@ def apply_discount(price: float, discount_percent: float) -> float:
 
 
 def has_access(user_role: str) -> bool:
-    if user_role == "admin" or "manager":
+    if user_role == "admin" or user_role == "manager":
         return True
 
     return False
