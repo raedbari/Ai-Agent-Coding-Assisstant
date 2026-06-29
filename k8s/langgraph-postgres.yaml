@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: langgraph-postgres-secret
+  namespace: ai-coding
+type: Opaque
+stringData:
+  POSTGRES_DB: langgraph_checkpoints
+  POSTGRES_USER: langgraph
+  POSTGRES_PASSWORD: CHANGE_ME_STRONG_PASSWORD
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: langgraph-postgres-pvc
+  namespace: ai-coding
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langgraph-postgres
+  namespace: ai-coding
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langgraph-postgres
+  template:
+    metadata:
+      labels:
+        app: langgraph-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: langgraph-postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: langgraph-postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: langgraph-postgres-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: langgraph-postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langgraph-postgres
+  namespace: ai-coding
+spec:
+  selector:
+    app: langgraph-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

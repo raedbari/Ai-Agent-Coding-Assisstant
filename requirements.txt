@@ -9,3 +9,5 @@ langchain
 langchain-openai
 langgraph
 requests
+langgraph-checkpoint-postgres
+psycopg[binary]

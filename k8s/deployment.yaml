@@ -69,3 +69,9 @@ spec:
 
             - name: GIT_AUTHOR_EMAIL
               value: "ai-coding-assistant@users.noreply.github.com"
+
+            - name: LANGGRAPH_CHECKPOINT_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                   name: langgraph-checkpointer
+                   key: LANGGRAPH_CHECKPOINT_DATABASE_URL
