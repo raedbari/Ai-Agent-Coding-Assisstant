@@ -216,6 +216,130 @@ def _try_apply_diff(repo_dir: Path, diff_text: str) -> tuple[bool, str]:
 
     return True, ""
 
+def _try_apply_diff(
+    repo_dir: Path,
+    diff_text: str,
+) -> tuple[bool, str]:
+    check_result = _run_git(
+        ["apply", "--check", "--recount", "--whitespace=nowarn", "-"],
+        cwd=repo_dir,
+        input_text=diff_text,
+    )
+
+    if check_result.returncode == 0:
+        apply_result = _run_git(
+            ["apply", "--recount", "--whitespace=nowarn", "-"],
+            cwd=repo_dir,
+            input_text=diff_text,
+        )
+
+        if apply_result.returncode == 0:
+            return True, ""
+
+        return False, apply_result.stderr.strip() or "Patch apply failed."
+
+    fallback_result = _apply_simple_line_replacement_fallback(
+        repo_dir=repo_dir,
+        diff_text=diff_text,
+    )
+
+    if fallback_result["success"]:
+        return True, fallback_result["message"]
+
+    git_error = check_result.stderr.strip() or "Patch check failed."
+    fallback_error = fallback_result["message"]
+
+    return False, f"{git_error}\nFallback failed: {fallback_error}"
+
+
+def _apply_simple_line_replacement_fallback(
+    repo_dir: Path,
+    diff_text: str,
+) -> dict:
+    current_file: Path | None = None
+    replacements: list[tuple[Path, str, str]] = []
+    pending_removed: str | None = None
+
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            raw_path = line[4:].strip()
+            path = _normalize_diff_path(raw_path)
+
+            if path != "/dev/null":
+                current_file = repo_dir / path
+            else:
+                current_file = None
+
+            pending_removed = None
+            continue
+
+        if current_file is None:
+            continue
+
+        if line.startswith("--- ") or line.startswith("@@ "):
+            pending_removed = None
+            continue
+
+        if line.startswith("-") and not line.startswith("---"):
+            pending_removed = line[1:]
+            continue
+
+        if (
+            line.startswith("+")
+            and not line.startswith("+++")
+            and pending_removed is not None
+        ):
+            replacements.append((current_file, pending_removed, line[1:]))
+            pending_removed = None
+            continue
+
+        if line.startswith(" "):
+            pending_removed = None
+
+    if not replacements:
+        return {
+            "success": False,
+            "message": "No simple line replacements found in diff.",
+        }
+
+    changed_count = 0
+
+    for file_path, old_line, new_line in replacements:
+        if not file_path.exists():
+            return {
+                "success": False,
+                "message": f"File not found for fallback replacement: {file_path}",
+            }
+
+        content = file_path.read_text(encoding="utf-8")
+
+        replacements_to_try = [
+            (old_line + "\n", new_line + "\n"),
+            (old_line + "\r\n", new_line + "\r\n"),
+            (old_line, new_line),
+        ]
+
+        replaced = False
+
+        for old_text, new_text in replacements_to_try:
+            if old_text in content:
+                content = content.replace(old_text, new_text, 1)
+                file_path.write_text(content, encoding="utf-8")
+                changed_count += 1
+                replaced = True
+                break
+
+        if not replaced:
+            return {
+                "success": False,
+                "message": f"Fallback could not find line in file: {old_line}",
+            }
+
+    return {
+        "success": True,
+        "message": f"Fallback applied {changed_count} simple replacement(s).",
+    }
+    
 
 def push_sonar_project_diff_to_github(
     diff_text: str,
