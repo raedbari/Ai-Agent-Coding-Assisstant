@@ -75,3 +75,6 @@ spec:
                 secretKeyRef:
                    name: langgraph-checkpointer
                    key: LANGGRAPH_CHECKPOINT_DATABASE_URL
+
+
+                   
