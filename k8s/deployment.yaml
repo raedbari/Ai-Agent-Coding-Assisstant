@@ -36,7 +36,7 @@ spec:
                 secretKeyRef:
                   name: sonar-credentials
                   key: SONAR_TOKEN
-            
+
             - name: LLM_PROVIDER
               value: "deepseek"
 
@@ -45,10 +45,27 @@ spec:
 
             - name: LLM_MODEL
               value: "deepseek-v4-flash"
-              
+
             - name: LLM_API_KEY
               valueFrom:
-               secretKeyRef:
-                 name: llm-credentials
-                 key: LLM_API_KEY
+                secretKeyRef:
+                  name: llm-credentials
+                  key: LLM_API_KEY
 
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-credentials
+                  key: GITHUB_TOKEN
+
+            - name: GITHUB_REPO_URL
+              value: "https://github.com/raedbari/Ai-Agent-Coding-Assisstant.git"
+
+            - name: GITHUB_BRANCH
+              value: "main"
+
+            - name: GIT_AUTHOR_NAME
+              value: "AI Coding Assistant"
+
+            - name: GIT_AUTHOR_EMAIL
+              value: "ai-coding-assistant@users.noreply.github.com"
