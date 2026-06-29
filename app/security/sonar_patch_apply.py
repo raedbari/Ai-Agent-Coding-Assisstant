@@ -118,7 +118,7 @@ def apply_sonar_project_diff(
     )
 
     check_result = subprocess.run(
-        ["git", "apply", "--check", "--whitespace=nowarn", "-"],
+        ["git", "apply", "--check", "--recount", "--whitespace=nowarn", "-"],
         input=cleaned_diff,
         text=True,
         cwd=project_root,
@@ -137,7 +137,7 @@ def apply_sonar_project_diff(
         }
 
     apply_result = subprocess.run(
-        ["git", "apply", "--whitespace=nowarn", "-"],
+        ["git", "apply", "--recount", "--whitespace=nowarn", "-"],
         input=cleaned_diff,
         text=True,
         cwd=project_root,
