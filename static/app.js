@@ -54,26 +54,38 @@ function setState(nextState, statusText) {
   renderWorkflow();
   renderControls();
 }
-
 function getStepStatus(index) {
+  if (state === WorkflowState.ERROR) {
+    return index === 0 ? "failed" : "locked";
+  }
+
+  if (state === WorkflowState.NO_ACTIONABLE_ISSUES) {
+    if (index <= 2) {
+      return "done";
+    }
+
+    return "locked";
+  }
+
+  if (state === WorkflowState.COMPLETED_REJECTED) {
+    if (index <= 3) {
+      return "done";
+    }
+
+    return "locked";
+  }
+
   const currentIndexByState = {
     INITIAL: 0,
     PROJECT_SELECTED: 1,
-    STARTING_AGENT: 2,
+    STARTING_AGENT: 1,
     REVIEW_REQUIRED: 3,
     RESUMING_AGENT: 4,
     COMPLETED_PUSHED: 5,
-    COMPLETED_REJECTED: 5,
-    NO_ACTIONABLE_ISSUES: 5,
-    COMPLETED: 5,
-    ERROR: 0
+    COMPLETED: 5
   };
 
   const activeIndex = currentIndexByState[state] ?? 0;
-
-  if (state === WorkflowState.ERROR && index === activeIndex) {
-    return "failed";
-  }
 
   if (index < activeIndex) {
     return "done";
@@ -84,17 +96,6 @@ function getStepStatus(index) {
   }
 
   return "locked";
-}
-
-function renderWorkflow() {
-  workflowSteps.innerHTML = "";
-
-  steps.forEach((step, index) => {
-    const div = document.createElement("div");
-    div.className = `step ${getStepStatus(index)}`;
-    div.textContent = `${index + 1}. ${step.label}`;
-    workflowSteps.appendChild(div);
-  });
 }
 
 function renderControls() {
