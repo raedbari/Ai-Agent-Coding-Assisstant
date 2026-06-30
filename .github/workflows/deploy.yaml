@@ -162,5 +162,45 @@ jobs:
           git pull --rebase origin main
           git push
 
+  argocd_refresh:
+    name: Refresh ArgoCD Application
+    runs-on: self-hosted
+    needs: build_push_update_manifest
+    timeout-minutes: 5
 
+    steps:
+      - name: Verify kubectl access
+        run: |
+          kubectl -n argocd get application ai-coding-assistant
+
+      - name: Hard refresh ArgoCD application
+        run: |
+          kubectl -n argocd annotate application ai-coding-assistant \
+            argocd.argoproj.io/refresh=hard --overwrite
+
+      - name: Wait for ArgoCD sync and rollout
+        run: |
+          echo "Waiting for ArgoCD application to become Synced/Healthy..."
+
+          for i in {1..60}; do
+            SYNC_STATUS=$(kubectl -n argocd get application ai-coding-assistant \
+              -o jsonpath='{.status.sync.status}')
+
+            HEALTH_STATUS=$(kubectl -n argocd get application ai-coding-assistant \
+              -o jsonpath='{.status.health.status}')
+
+            echo "ArgoCD: sync=${SYNC_STATUS}, health=${HEALTH_STATUS}"
+
+            if [ "$SYNC_STATUS" = "Synced" ] && [ "$HEALTH_STATUS" = "Healthy" ]; then
+              break
+            fi
+
+            sleep 5
+          done
+
+          kubectl -n ai-coding rollout status deployment/ai-coding-assistant --timeout=180s
+
+          echo "Current deployed image:"
+          kubectl -n ai-coding get deployment ai-coding-assistant \
+            -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 
