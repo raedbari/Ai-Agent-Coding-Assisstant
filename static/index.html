@@ -12,8 +12,8 @@
       <div>
         <h1>AI Coding Assistant</h1>
         <p>
-          Load issues reported by SonarQube, generate a dynamic repair prompt
-          from those issues, review the DeepSeek diff, then apply the patch after approval.
+          Start a LangGraph repair run, stream agent progress, review the proposed diff,
+          then approve or reject the GitHub patch.
         </p>
       </div>
 
@@ -46,7 +46,7 @@
 
           <div class="action-row">
             <button id="scanProjectButton" class="hidden" disabled>
-              Load SonarQube issues
+              Start agent run
             </button>
 
             <button id="changeProjectButton">
@@ -63,37 +63,37 @@
     </section>
 
     <section class="card">
-      <h2>2. SonarQube status</h2>
+      <h2>2. Agent execution stream</h2>
       <div id="toolRunsBox" class="box muted">
-        No SonarQube issues have been loaded yet.
+        Agent stream has not started yet.
       </div>
     </section>
 
     <section class="card">
-      <h2>3. SonarQube issues</h2>
+      <h2>3. Selected issue context</h2>
       <div id="issuesBox" class="box muted">
-        Confirm the project, then load SonarQube issues.
+        Confirm the project, then start the agent.
       </div>
     </section>
 
     <section class="card">
-      <h2>4. Dynamic repair prompt</h2>
+      <h2>4. Repair summary</h2>
       <div id="repairPlanBox" class="box muted">
-        No repair prompt has been generated yet.
+        No repair summary yet.
       </div>
     </section>
 
     <section class="card">
-      <h2>5. Diff review</h2>
+      <h2>5. Human diff review</h2>
       <div id="diffBox" class="box muted">
-        No diff has been proposed yet.
+        No diff is waiting for review.
       </div>
     </section>
 
     <section class="card">
-      <h2>6. Final result</h2>
+      <h2>6. Final deployment result</h2>
       <div id="finalResultBox" class="box muted">
-        No patch has been applied yet.
+        No final result yet.
       </div>
     </section>
   </main>
@@ -101,4 +101,3 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
-

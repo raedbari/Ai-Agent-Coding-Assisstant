@@ -409,3 +409,34 @@ pre {
   }
 }
 
+.stream-event {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 9px 11px;
+  margin: 8px 0;
+  background: var(--panel-inner);
+  font-family: Consolas, monospace;
+  font-size: 14px;
+}
+
+.secondary-button {
+  background: var(--panel-dark);
+  border-color: var(--border-soft);
+  color: var(--text);
+}
+
+.secondary-button:hover {
+  background: var(--panel-inner);
+  border-color: var(--accent);
+}
+
+button.danger-button {
+  background: var(--error);
+  border-color: var(--error);
+  color: #ffffff;
+}
+
+button.danger-button:hover {
+  background: #b94b4b;
+  border-color: #b94b4b;
+}

@@ -1,30 +1,33 @@
 const WorkflowState = {
   INITIAL: "INITIAL",
   PROJECT_SELECTED: "PROJECT_SELECTED",
-  LOADING_SONAR_ISSUES: "LOADING_SONAR_ISSUES",
-  SONAR_ISSUES_LOADED: "SONAR_ISSUES_LOADED",
-  PROPOSING_FIX: "PROPOSING_FIX",
-  DIFF_READY: "DIFF_READY",
-  APPLYING_PATCH: "APPLYING_PATCH",
-  VERIFY_DONE: "VERIFY_DONE",
+  STARTING_AGENT: "STARTING_AGENT",
+  REVIEW_REQUIRED: "REVIEW_REQUIRED",
+  RESUMING_AGENT: "RESUMING_AGENT",
+  COMPLETED_PUSHED: "COMPLETED_PUSHED",
+  COMPLETED_REJECTED: "COMPLETED_REJECTED",
+  NO_ACTIONABLE_ISSUES: "NO_ACTIONABLE_ISSUES",
+  COMPLETED: "COMPLETED",
   ERROR: "ERROR"
 };
 
 const steps = [
   { key: "select", label: "Select project" },
-  { key: "load", label: "Load SonarQube issues" },
-  { key: "fix", label: "Propose fix" },
-  { key: "diff", label: "Review diff" },
+  { key: "start", label: "Start agent" },
+  { key: "analyze", label: "Analyze issues" },
+  { key: "review", label: "Human review" },
   { key: "apply", label: "Apply patch" },
-  { key: "verify", label: "Verify result" }
+  { key: "deploy", label: "CI/CD deploy" }
 ];
 
 const INITIAL_LOG_TEXT = "No action started yet.";
 
 let state = WorkflowState.INITIAL;
 let selectedProjectId = null;
-let latestProjectFixResult = null;
-let latestModelOutput = null;
+let currentThreadId = null;
+let currentReviewPayload = null;
+let currentAgentOutput = null;
+let currentStreamController = null;
 
 const currentStatus = document.getElementById("currentStatus");
 const workflowSteps = document.getElementById("workflowSteps");
@@ -56,12 +59,13 @@ function getStepStatus(index) {
   const currentIndexByState = {
     INITIAL: 0,
     PROJECT_SELECTED: 1,
-    LOADING_SONAR_ISSUES: 1,
-    SONAR_ISSUES_LOADED: 2,
-    PROPOSING_FIX: 2,
-    DIFF_READY: 3,
-    APPLYING_PATCH: 4,
-    VERIFY_DONE: 5,
+    STARTING_AGENT: 2,
+    REVIEW_REQUIRED: 3,
+    RESUMING_AGENT: 4,
+    COMPLETED_PUSHED: 5,
+    COMPLETED_REJECTED: 5,
+    NO_ACTIONABLE_ISSUES: 5,
+    COMPLETED: 5,
     ERROR: 0
   };
 
@@ -97,9 +101,8 @@ function renderControls() {
   const projectChosen = Boolean(selectedProjectId);
 
   const busyStates = [
-    WorkflowState.LOADING_SONAR_ISSUES,
-    WorkflowState.PROPOSING_FIX,
-    WorkflowState.APPLYING_PATCH
+    WorkflowState.STARTING_AGENT,
+    WorkflowState.RESUMING_AGENT
   ];
 
   projectSelectionArea.classList.toggle("hidden", projectChosen);
@@ -107,12 +110,10 @@ function renderControls() {
 
   confirmProjectButton.disabled = state !== WorkflowState.INITIAL;
 
-  scanProjectButton.disabled = ![
-    WorkflowState.PROJECT_SELECTED,
-    WorkflowState.SONAR_ISSUES_LOADED,
-    WorkflowState.DIFF_READY,
-    WorkflowState.VERIFY_DONE
-  ].includes(state);
+  scanProjectButton.disabled =
+    !projectChosen ||
+    busyStates.includes(state) ||
+    state === WorkflowState.REVIEW_REQUIRED;
 
   changeProjectButton.disabled = busyStates.includes(state);
 }
@@ -138,6 +139,20 @@ function clearBox(element, kind = "") {
   element.innerHTML = "";
 }
 
+function createElement(tag, className = "", text = "") {
+  const element = document.createElement(tag);
+
+  if (className) {
+    element.className = className;
+  }
+
+  if (text) {
+    element.textContent = text;
+  }
+
+  return element;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     cache: "no-store",
@@ -158,6 +173,65 @@ async function api(path, options = {}) {
   }
 
   return response.json();
+}
+
+async function streamApi(path, body, onEvent) {
+  currentStreamController = new AbortController();
+
+  const response = await fetch(path, {
+    method: "POST",
+    cache: "no-store",
+    signal: currentStreamController.signal,
+    headers: body
+      ? { "Content-Type": "application/json; charset=utf-8" }
+      : {},
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Stream request failed with status ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response does not contain a readable body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        continue;
+      }
+
+      const event = JSON.parse(trimmed);
+      onEvent(event);
+    }
+  }
+
+  const rest = buffer.trim();
+
+  if (rest) {
+    onEvent(JSON.parse(rest));
+  }
+
+  currentStreamController = null;
 }
 
 async function loadProjects() {
@@ -185,44 +259,51 @@ async function loadProjects() {
 
 function confirmProject() {
   selectedProjectId = projectSelect.value;
-  latestProjectFixResult = null;
-  latestModelOutput = null;
+  currentThreadId = null;
+  currentReviewPayload = null;
+  currentAgentOutput = null;
 
   selectedProjectText.textContent = selectedProjectId;
 
   scanProjectButton.classList.remove("hidden");
   scanProjectButton.disabled = false;
-  scanProjectButton.textContent = "Load SonarQube issues";
-  scanProjectButton.onclick = loadSonarIssues;
+  scanProjectButton.textContent = "Start agent run";
+  scanProjectButton.onclick = startAgentRun;
 
   setBox(
     toolRunsBox,
-    "This workflow uses SonarQube as the source of detected issues.",
+    "Agent stream has not started yet.",
     "muted"
   );
 
-  setBox(issuesBox, "Click “Load SonarQube issues” to fetch detected issues.", "muted");
-  setBox(repairPlanBox, "No repair prompt has been generated yet.", "muted");
-  setBox(diffBox, "No diff has been proposed yet.", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+  setBox(issuesBox, "Start the agent to collect SonarQube issue context.", "muted");
+  setBox(repairPlanBox, "No repair summary yet.", "muted");
+  setBox(diffBox, "No diff is waiting for review.", "muted");
+  setBox(finalResultBox, "No final result yet.", "muted");
 
   addLog(`Selected project: ${selectedProjectId}`);
-  setState(WorkflowState.PROJECT_SELECTED, "Project ready for SonarQube");
+  setState(WorkflowState.PROJECT_SELECTED, "Project ready for agent run");
 }
 
 function changeProject() {
+  if (currentStreamController) {
+    currentStreamController.abort();
+    currentStreamController = null;
+  }
+
   selectedProjectId = null;
-  latestProjectFixResult = null;
-  latestModelOutput = null;
+  currentThreadId = null;
+  currentReviewPayload = null;
+  currentAgentOutput = null;
 
-  scanProjectButton.textContent = "Load SonarQube issues";
-  scanProjectButton.onclick = loadSonarIssues;
+  scanProjectButton.textContent = "Start agent run";
+  scanProjectButton.onclick = startAgentRun;
 
-  setBox(toolRunsBox, "No SonarQube issues have been loaded yet.", "muted");
-  setBox(issuesBox, "Confirm the project, then load SonarQube issues.", "muted");
-  setBox(repairPlanBox, "No repair prompt has been generated yet.", "muted");
-  setBox(diffBox, "No diff has been proposed yet.", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+  setBox(toolRunsBox, "Agent stream has not started yet.", "muted");
+  setBox(issuesBox, "Confirm the project, then start the agent.", "muted");
+  setBox(repairPlanBox, "No repair summary yet.", "muted");
+  setBox(diffBox, "No diff is waiting for review.", "muted");
+  setBox(finalResultBox, "No final result yet.", "muted");
 
   addLog("Returned to project selection.");
   setState(WorkflowState.INITIAL, "Select a project");
@@ -235,381 +316,506 @@ function renderBadge(text, kind = "") {
   return badge;
 }
 
-async function loadSonarIssues() {
-  if (!selectedProjectId) {
-    setBox(issuesBox, "Select a project first.", "error");
+function resetAgentBoxes() {
+  clearBox(toolRunsBox);
+  clearBox(issuesBox);
+  clearBox(repairPlanBox);
+  clearBox(diffBox);
+  clearBox(finalResultBox);
+
+  const streamTitle = createElement("h3", "", "Agent execution stream");
+  toolRunsBox.appendChild(streamTitle);
+
+  setBox(issuesBox, "Waiting for selected SonarQube issues...", "muted");
+  setBox(repairPlanBox, "Waiting for generated repair summary...", "muted");
+  setBox(diffBox, "Waiting for human-review diff...", "muted");
+  setBox(finalResultBox, "Waiting for final result...", "muted");
+}
+
+function appendStreamEvent(message, kind = "muted") {
+  if (toolRunsBox.textContent.trim() === "Agent stream has not started yet.") {
+    clearBox(toolRunsBox);
+  }
+
+  toolRunsBox.className = "box";
+  const event = createElement("div", `stream-event ${kind}`, message);
+  toolRunsBox.appendChild(event);
+  toolRunsBox.scrollTop = toolRunsBox.scrollHeight;
+}
+
+function formatNodeMessage(data) {
+  const node = data.node || "graph";
+
+  if (data.error) {
+    return `${node}: ${data.error}`;
+  }
+
+  if (data.selected_issues_count !== undefined) {
+    return `${node}: selected ${data.selected_issues_count} actionable issue(s).`;
+  }
+
+  if (data.issues_count !== undefined) {
+    return `${node}: loaded ${data.issues_count} SonarQube issue(s).`;
+  }
+
+  if (data.fix) {
+    return `${node}: generated fix summary.`;
+  }
+
+  if (data.diff_validation) {
+    return `${node}: diff validation ${data.diff_validation.status}.`;
+  }
+
+  if (data.approval_status) {
+    return `${node}: approval status ${data.approval_status}.`;
+  }
+
+  if (data.apply_result) {
+    return `${node}: apply result ${data.apply_result.status}.`;
+  }
+
+  return `${node}: completed.`;
+}
+
+function handleAgentStreamEvent(event) {
+  const type = event.event;
+  const data = event.data || {};
+
+  if (type === "run_started") {
+    currentThreadId = data.thread_id;
+    appendStreamEvent(`Run started. Thread: ${currentThreadId}`, "status-muted");
+    addLog(`Agent run started: ${currentThreadId}`);
     return;
   }
 
-  latestProjectFixResult = null;
-  latestModelOutput = null;
+  if (type === "node_update") {
+    appendStreamEvent(formatNodeMessage(data), data.error ? "status-error" : "status-muted");
+    renderNodeUpdate(data);
+    return;
+  }
 
-  setState(WorkflowState.LOADING_SONAR_ISSUES, "Loading SonarQube issues");
-  addLog(`Loading SonarQube issues for project: ${selectedProjectId}`);
+  if (type === "review_required") {
+    currentThreadId = data.thread_id;
+    currentReviewPayload = data.review_payload;
+    appendStreamEvent("Human review required.", "status-warning");
+    addLog("Agent paused for human review.");
+    renderReviewPayload(currentReviewPayload);
+    setState(WorkflowState.REVIEW_REQUIRED, "Human review required");
+    return;
+  }
 
-  setBox(issuesBox, "Loading SonarQube issues...", "muted");
-  setBox(repairPlanBox, "No repair prompt has been generated yet.", "muted");
-  setBox(diffBox, "No diff has been proposed yet.", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
+  if (type === "completed") {
+    currentThreadId = data.thread_id;
+    currentAgentOutput = data.output || {};
+    appendStreamEvent("Agent run completed.", "status-success");
+    renderCompletedOutput(currentAgentOutput);
+    return;
+  }
 
-  try {
-    const result = await api(
-      `/sonar/demo/issues?project_id=${encodeURIComponent(selectedProjectId)}`
-    );
+  if (type === "error") {
+    appendStreamEvent(`Error: ${data.message}`, "status-error");
+    setBox(finalResultBox, `Agent stream failed:\n${data.message}`, "error");
+    setState(WorkflowState.ERROR, "Agent failed");
+    addLog("Agent stream failed.");
+    return;
+  }
 
-    addLog(`${result.total} SonarQube issue(s) loaded.`);
-    renderSonarIssues(result.issues || []);
+  if (type === "done") {
+    addLog(`Stream closed with status: ${data.status}`);
+  }
+}
 
-    if (result.issues && result.issues.length) {
-      setState(
-        WorkflowState.SONAR_ISSUES_LOADED,
-        "SonarQube issues loaded"
-      );
-    } else {
-      setState(
-        WorkflowState.VERIFY_DONE,
-        "No SonarQube issues found"
-      );
-    }
-  } catch (error) {
-    setState(WorkflowState.ERROR, "Failed to load SonarQube issues");
+function renderNodeUpdate(data) {
+  if (Array.isArray(data.selected_issues) && data.selected_issues.length) {
+    renderSelectedIssues(data.selected_issues);
+  }
+
+  if (data.fix) {
+    renderFixSummary(data.fix);
+  }
+
+  if (data.apply_result) {
+    renderApplyResult(data.apply_result);
+  }
+
+  if (data.diff_validation && data.diff_validation.success === false) {
     setBox(
-      issuesBox,
-      `Failed to load SonarQube issues:\n${error.message}`,
+      diffBox,
+      `Diff validation failed before review:\n${data.diff_validation.message || "Unknown validation error."}`,
       "error"
     );
-    addLog("Failed to load SonarQube issues.");
+  }
+
+  if (data.error) {
+    setBox(finalResultBox, data.error, "error");
   }
 }
 
-
-function renderSonarIssues(issues) {
+function renderSelectedIssues(issues) {
   issuesBox.innerHTML = "";
+  issuesBox.className = "box warning";
 
-  if (!issues.length) {
-    issuesBox.className = "box success";
-    issuesBox.textContent = "No SonarQube issues found.";
-    return;
-  }
-
-  const hasCritical = issues.some(
-    (issue) => issue.severity === "CRITICAL" || issue.severity === "BLOCKER"
-  );
-
-  issuesBox.className = hasCritical ? "box error" : "box warning";
-
-  const title = document.createElement("h3");
-  title.textContent = "SonarQube issues";
+  const title = createElement("h3", "", "Selected SonarQube issues");
   issuesBox.appendChild(title);
 
-  const projectFixWrapper = document.createElement("div");
-  projectFixWrapper.className = "action-row";
-
-  const projectFixButton = document.createElement("button");
-  projectFixButton.textContent = "Fix project from SonarQube issues";
-  projectFixButton.onclick = proposeProjectSonarFix;
-
-  projectFixWrapper.appendChild(projectFixButton);
-  issuesBox.appendChild(projectFixWrapper);
-
   for (const issue of issues) {
-    issuesBox.appendChild(createSonarIssueCard(issue));
-  }
-}
+    const card = createElement("div", "issue-card");
 
-
-function createSonarIssueCard(issue) {
-  const card = document.createElement("div");
-  card.className = "issue-card";
-
-  const title = document.createElement("h4");
-  title.textContent = `${issue.severity || "UNKNOWN"} · ${issue.rule_id || "unknown rule"}`;
-  card.appendChild(title);
-
-  const message = document.createElement("p");
-  message.textContent = issue.message || "No message.";
-  card.appendChild(message);
-
-  const file = document.createElement("p");
-  file.textContent = `File: ${issue.file_path || "Unknown file"}:${issue.line || issue.start_line || "?"}`;
-  card.appendChild(file);
-
-  const type = document.createElement("p");
-  type.textContent = `Type: ${issue.type || "Unknown"} · Source: SonarQube`;
-  card.appendChild(type);
-
-  return card;
-}
-
-
-async function proposeProjectSonarFix() {
-  if (!selectedProjectId) {
-    setBox(diffBox, "Select a project first.", "error");
-    return;
-  }
-
-  latestProjectFixResult = null;
-  latestModelOutput = null;
-
-  setState(
-    WorkflowState.PROPOSING_FIX,
-    "Sending SonarQube project issues to DeepSeek"
-  );
-
-  addLog(`Sending SonarQube issues for project: ${selectedProjectId}`);
-
-  setBox(repairPlanBox, "Building dynamic prompt from SonarQube issues...", "muted");
-  setBox(diffBox, "Waiting for DeepSeek response...", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
-
-  try {
-    const result = await api(
-      `/sonar/demo/projects/${encodeURIComponent(selectedProjectId)}/propose-fix`,
-      { method: "POST" }
+    const heading = createElement(
+      "h4",
+      "",
+      `${issue.severity || "UNKNOWN"} · ${issue.rule_id || "unknown rule"}`
     );
+    card.appendChild(heading);
 
-    latestProjectFixResult = result;
-    latestModelOutput = result.model_output || "";
+    const message = createElement("p", "", issue.message || "No message.");
+    card.appendChild(message);
 
-    addLog(
-      `DeepSeek returned a project-level fix for ${result.total} SonarQube issue(s).`
+    const file = createElement(
+      "p",
+      "",
+      `File: ${issue.file_path || "Unknown file"}:${issue.line || "?"}`
     );
+    card.appendChild(file);
 
-    renderProjectSonarPrompt(result);
-    renderProjectSonarModelOutput(result);
-
-    setState(WorkflowState.DIFF_READY, "Review DeepSeek output");
-  } catch (error) {
-    setState(WorkflowState.ERROR, "DeepSeek request failed");
-    setBox(diffBox, `DeepSeek request failed:\n${error.message}`, "error");
-    addLog("DeepSeek request failed.");
+    issuesBox.appendChild(card);
   }
 }
 
-
-function renderProjectSonarPrompt(result) {
+function renderFixSummary(fix) {
   repairPlanBox.innerHTML = "";
   repairPlanBox.className = "box";
 
-  const title = document.createElement("h3");
-  title.textContent = "Dynamic SonarQube repair prompt";
+  const title = createElement("h3", "", "Repair summary");
   repairPlanBox.appendChild(title);
 
-  const meta = document.createElement("p");
-  meta.textContent = `${result.project_id} · ${result.total} SonarQube issue(s)`;
-  repairPlanBox.appendChild(meta);
+  const summary = createElement("p", "", fix.summary || "No summary was generated.");
+  repairPlanBox.appendChild(summary);
 
-  const pre = document.createElement("pre");
-  pre.textContent = result.prompt || "No prompt was generated.";
-  repairPlanBox.appendChild(pre);
+  const badges = createElement("div", "badges");
+  badges.appendChild(renderBadge(`Risk: ${fix.risk || "unknown"}`, "status-warning"));
+
+  const files = Array.isArray(fix.changed_files) ? fix.changed_files : [];
+
+  badges.appendChild(renderBadge(`Files: ${files.length}`, "status-muted"));
+  repairPlanBox.appendChild(badges);
+
+  if (files.length) {
+    const list = createElement("ul", "compact-list");
+
+    for (const file of files) {
+      const li = createElement("li", "", file);
+      list.appendChild(li);
+    }
+
+    repairPlanBox.appendChild(list);
+  }
 }
 
-
-function renderProjectSonarModelOutput(result) {
+function renderReviewPayload(payload) {
   diffBox.innerHTML = "";
-  diffBox.className = "box";
+  diffBox.className = "box warning";
 
-  const title = document.createElement("h3");
-  title.textContent = "DeepSeek proposed project fix";
+  const title = createElement("h3", "", "Human diff review required");
   diffBox.appendChild(title);
 
-  const meta = document.createElement("p");
-  meta.textContent = `${result.project_id} · ${result.total} SonarQube issue(s)`;
-  diffBox.appendChild(meta);
+  const summary = createElement("p", "", payload.summary || "No summary provided.");
+  diffBox.appendChild(summary);
 
-  const pre = document.createElement("pre");
-  pre.textContent = result.model_output || "DeepSeek returned an empty response.";
+  const badges = createElement("div", "badges");
+  badges.appendChild(renderBadge(`Project: ${payload.project_id || selectedProjectId}`));
+  badges.appendChild(renderBadge(`Risk: ${payload.risk || "unknown"}`, "status-warning"));
+  diffBox.appendChild(badges);
+
+  const changedFiles = Array.isArray(payload.changed_files)
+    ? payload.changed_files
+    : [];
+
+  if (changedFiles.length) {
+    const files = createElement("p", "", `Changed files: ${changedFiles.join(", ")}`);
+    diffBox.appendChild(files);
+  }
+
+  const pre = createElement("pre", "diff");
+  pre.textContent = payload.diff || "No diff returned.";
   diffBox.appendChild(pre);
 
-  const note = document.createElement("p");
-  note.className = "action-text";
-  note.textContent = "Review the diff first. Apply patch is the next backend step.";
-  diffBox.appendChild(note);
+  const wrapper = createElement("div", "action-row");
+
+  const approveButton = createElement("button", "", "Approve and apply patch");
+  approveButton.onclick = approveCurrentReview;
+
+  const rejectButton = createElement("button", "secondary-button", "Reject");
+  rejectButton.onclick = rejectCurrentReview;
+
+  wrapper.appendChild(approveButton);
+  wrapper.appendChild(rejectButton);
+  diffBox.appendChild(wrapper);
+
+  setBox(finalResultBox, "Waiting for your approval decision.", "muted");
 }
 
-
-async function applyPatch() {
+async function startAgentRun() {
   if (!selectedProjectId) {
     setBox(finalResultBox, "Select a project first.", "error");
     return;
   }
 
-  if (!latestModelOutput) {
-    setBox(finalResultBox, "No DeepSeek diff is available to apply.", "error");
-    return;
-  }
+  currentThreadId = null;
+  currentReviewPayload = null;
+  currentAgentOutput = null;
 
-  const confirmed = confirm(
-    "Apply this DeepSeek diff to the project files?"
-  );
+  setState(WorkflowState.STARTING_AGENT, "Starting agent run");
+  addLog(`Starting agent run for project: ${selectedProjectId}`);
 
-  if (!confirmed) {
-    addLog("Patch application was cancelled.");
-    return;
-  }
-
-  setState(WorkflowState.APPLYING_PATCH, "Applying patch");
-  addLog("Applying project-level SonarQube patch.");
-  setBox(finalResultBox, "Applying patch...", "muted");
+  resetAgentBoxes();
 
   try {
+    await streamApi(
+      `/agent/projects/${encodeURIComponent(selectedProjectId)}/start/stream`,
+      null,
+      handleAgentStreamEvent
+    );
+  } catch (error) {
+    addLog("Streaming start failed. Falling back to non-streaming endpoint.");
+    appendStreamEvent(`Streaming failed: ${error.message}`, "status-warning");
+    await startAgentRunWithoutStreaming();
+  }
+}
+
+async function startAgentRunWithoutStreaming() {
+  try {
     const result = await api(
-      `/sonar/demo/projects/${encodeURIComponent(selectedProjectId)}/apply-fix`,
+      `/agent/projects/${encodeURIComponent(selectedProjectId)}/start`,
+      { method: "POST" }
+    );
+
+    currentThreadId = result.thread_id;
+
+    if (result.status === "interrupted") {
+      currentReviewPayload = result.review_payload;
+      renderReviewPayload(currentReviewPayload);
+      setState(WorkflowState.REVIEW_REQUIRED, "Human review required");
+      return;
+    }
+
+    renderCompletedOutput(result.output || {});
+  } catch (error) {
+    setState(WorkflowState.ERROR, "Agent start failed");
+    setBox(finalResultBox, `Agent start failed:\n${error.message}`, "error");
+    addLog("Agent start failed.");
+  }
+}
+
+async function approveCurrentReview() {
+  if (!currentThreadId || !currentReviewPayload) {
+    setBox(finalResultBox, "No active review thread is available.", "error");
+    return;
+  }
+
+  const confirmed = confirm("Approve this diff and apply the patch to GitHub?");
+
+  if (!confirmed) {
+    addLog("Approval cancelled.");
+    return;
+  }
+
+  await resumeAgentRun(true, "Approved from web UI.");
+}
+
+async function rejectCurrentReview() {
+  if (!currentThreadId || !currentReviewPayload) {
+    setBox(finalResultBox, "No active review thread is available.", "error");
+    return;
+  }
+
+  await resumeAgentRun(false, "Rejected from web UI.");
+}
+
+async function resumeAgentRun(approved, reason) {
+  setState(
+    WorkflowState.RESUMING_AGENT,
+    approved ? "Applying approved patch" : "Rejecting proposed patch"
+  );
+
+  addLog(approved ? "Approving agent diff." : "Rejecting agent diff.");
+
+  setBox(
+    finalResultBox,
+    approved
+      ? "Applying patch to GitHub and waiting for result..."
+      : "Rejecting patch...",
+    "muted"
+  );
+
+  try {
+    await streamApi(
+      `/agent/threads/${encodeURIComponent(currentThreadId)}/resume/stream`,
+      {
+        approved,
+        reason
+      },
+      handleAgentStreamEvent
+    );
+  } catch (error) {
+    addLog("Streaming resume failed. Falling back to non-streaming endpoint.");
+    appendStreamEvent(`Resume streaming failed: ${error.message}`, "status-warning");
+    await resumeAgentRunWithoutStreaming(approved, reason);
+  }
+}
+
+async function resumeAgentRunWithoutStreaming(approved, reason) {
+  try {
+    const result = await api(
+      `/agent/threads/${encodeURIComponent(currentThreadId)}/resume`,
       {
         method: "POST",
         body: JSON.stringify({
-          model_output: latestModelOutput
+          approved,
+          reason
         })
       }
     );
 
-    addLog("Patch apply request finished.");
-    renderApplyResult(result);
-
-    setState(WorkflowState.VERIFY_DONE, "Patch apply finished");
+    renderCompletedOutput(result.output || {});
   } catch (error) {
-    setState(WorkflowState.ERROR, "Failed to apply patch");
-    setBox(finalResultBox, `Failed to apply patch:\n${error.message}`, "error");
-    addLog("Failed to apply patch.");
+    setState(WorkflowState.ERROR, "Agent resume failed");
+    setBox(finalResultBox, `Agent resume failed:\n${error.message}`, "error");
+    addLog("Agent resume failed.");
   }
 }
 
+function renderCompletedOutput(output) {
+  currentAgentOutput = output || {};
 
-async function proposeProjectSonarFix() {
-  if (!selectedProjectId) {
-    setBox(diffBox, "Select a project first.", "error");
+  if (output.error) {
+    setBox(finalResultBox, `Agent completed with error:\n${output.error}`, "error");
+    setState(WorkflowState.ERROR, "Agent completed with error");
     return;
   }
 
-  latestProjectFixResult = null;
-  latestModelOutput = null;
+  const applyResult = output.apply_result;
 
-  setState(
-    WorkflowState.PROPOSING_FIX,
-    "Sending SonarQube project issues to DeepSeek"
-  );
+  if (applyResult) {
+    renderApplyResult(applyResult);
 
-  addLog(`Sending SonarQube issues for project: ${selectedProjectId}`);
+    if (applyResult.success === true) {
+      setState(WorkflowState.COMPLETED_PUSHED, "Patch pushed to GitHub");
+      addLog("Patch committed and pushed to GitHub.");
+    } else {
+      setState(WorkflowState.ERROR, "Patch apply failed");
+      addLog("Patch apply failed.");
+    }
 
-  setBox(repairPlanBox, "Building dynamic prompt from SonarQube issues...", "muted");
-  setBox(diffBox, "Waiting for DeepSeek response...", "muted");
-  setBox(finalResultBox, "No patch has been applied yet.", "muted");
-
-  try {
-    const result = await api(
-      `/sonar/demo/projects/${encodeURIComponent(selectedProjectId)}/propose-fix`,
-      { method: "POST" }
-    );
-
-    latestProjectFixResult = result;
-    latestModelOutput = result.model_output || "";
-
-    addLog(
-      `DeepSeek returned a project-level fix for ${result.total} SonarQube issue(s).`
-    );
-
-    renderProjectSonarPrompt(result);
-    renderProjectSonarModelOutput(result);
-
-    setState(WorkflowState.DIFF_READY, "Review DeepSeek output");
-  } catch (error) {
-    setState(WorkflowState.ERROR, "DeepSeek request failed");
-    setBox(diffBox, `DeepSeek request failed:\n${error.message}`, "error");
-    addLog("DeepSeek request failed.");
+    return;
   }
+
+  if (output.approval_status === "rejected") {
+    finalResultBox.innerHTML = "";
+    finalResultBox.className = "box warning";
+
+    const title = createElement("h3", "", "Patch rejected");
+    finalResultBox.appendChild(title);
+
+    const message = createElement("p", "", "No files were changed.");
+    finalResultBox.appendChild(message);
+
+    setState(WorkflowState.COMPLETED_REJECTED, "Patch rejected");
+    addLog("Patch rejected.");
+    return;
+  }
+
+  const fix = output.fix || {};
+  const changedFiles = Array.isArray(fix.changed_files) ? fix.changed_files : [];
+
+  if (!fix.summary && !changedFiles.length) {
+    finalResultBox.innerHTML = "";
+    finalResultBox.className = "box success";
+
+    const title = createElement("h3", "", "No actionable issues");
+    finalResultBox.appendChild(title);
+
+    const message = createElement(
+      "p",
+      "",
+      "The agent did not find actionable SonarQube issues for this project."
+    );
+    finalResultBox.appendChild(message);
+
+    setState(WorkflowState.NO_ACTIONABLE_ISSUES, "No actionable issues");
+    addLog("No actionable issues found.");
+    return;
+  }
+
+  finalResultBox.innerHTML = "";
+  finalResultBox.className = "box success";
+
+  const title = createElement("h3", "", "Agent completed");
+  finalResultBox.appendChild(title);
+
+  const message = createElement("p", "", "The agent run completed.");
+  finalResultBox.appendChild(message);
+
+  setState(WorkflowState.COMPLETED, "Agent completed");
 }
-
-
-function renderProjectSonarPrompt(result) {
-  repairPlanBox.innerHTML = "";
-  repairPlanBox.className = "box";
-
-  const title = document.createElement("h3");
-  title.textContent = "Dynamic SonarQube repair prompt";
-  repairPlanBox.appendChild(title);
-
-  const meta = document.createElement("p");
-  meta.textContent = `${result.project_id} · ${result.total} SonarQube issue(s)`;
-  repairPlanBox.appendChild(meta);
-
-  const pre = document.createElement("pre");
-  pre.textContent = result.prompt || "No prompt was generated.";
-  repairPlanBox.appendChild(pre);
-}
-
-
-function renderProjectSonarModelOutput(result) {
-  diffBox.innerHTML = "";
-  diffBox.className = "box";
-
-  const title = document.createElement("h3");
-  title.textContent = "DeepSeek proposed project fix";
-  diffBox.appendChild(title);
-
-  const meta = document.createElement("p");
-  meta.textContent = `${result.project_id} · ${result.total} SonarQube issue(s)`;
-  diffBox.appendChild(meta);
-
-  const pre = document.createElement("pre");
-  pre.textContent = result.model_output || "DeepSeek returned an empty response.";
-  diffBox.appendChild(pre);
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "action-row";
-
-  const applyButton = document.createElement("button");
-  applyButton.textContent = "Apply patch";
-  applyButton.onclick = applyPatch;
-
-  const rejectButton = document.createElement("button");
-  rejectButton.textContent = "Reject";
-  rejectButton.onclick = () => {
-    latestProjectFixResult = null;
-    latestModelOutput = null;
-    addLog("DeepSeek proposed fix rejected.");
-    setBox(finalResultBox, "Patch rejected. No files were changed.", "warning");
-    setState(WorkflowState.DIFF_READY, "Patch rejected");
-  };
-
-  wrapper.appendChild(applyButton);
-  wrapper.appendChild(rejectButton);
-  diffBox.appendChild(wrapper);
-}
-
 
 function renderApplyResult(result) {
   finalResultBox.innerHTML = "";
 
-  const success = result.status === "applied" || result.success === true;
-  finalResultBox.className = success ? "box success" : "box warning";
+  const success = result.status === "pushed" || result.success === true;
+  finalResultBox.className = success ? "box success" : "box error";
 
-  const title = document.createElement("h3");
-  title.textContent = success ? "Patch applied" : "Patch apply result";
+  const title = createElement(
+    "h3",
+    "",
+    success ? "Patch pushed to GitHub" : "Patch apply failed"
+  );
   finalResultBox.appendChild(title);
 
-  const message = document.createElement("p");
-  message.textContent = result.message || "Patch operation finished.";
+  const message = createElement(
+    "p",
+    "",
+    result.message || "Patch operation finished."
+  );
   finalResultBox.appendChild(message);
+
+  if (result.branch) {
+    const branch = createElement("p", "", `Branch: ${result.branch}`);
+    finalResultBox.appendChild(branch);
+  }
+
+  if (result.commit_sha) {
+    const commit = createElement("p", "", `Commit: ${result.commit_sha}`);
+    finalResultBox.appendChild(commit);
+  }
 
   const appliedFiles = Array.isArray(result.applied_files)
     ? result.applied_files
     : [];
 
-  const files = document.createElement("p");
-  files.textContent = `Modified files: ${appliedFiles.length ? appliedFiles.join(", ") : "None"}`;
+  const files = createElement(
+    "p",
+    "",
+    `Modified files: ${appliedFiles.length ? appliedFiles.join(", ") : "None"}`
+  );
   finalResultBox.appendChild(files);
 
   if (result.diff) {
-    const pre = document.createElement("pre");
+    const details = createElement("details", "technical-details");
+    const summary = createElement("summary", "", "Applied diff");
+    details.appendChild(summary);
+
+    const pre = createElement("pre", "diff");
     pre.textContent = result.diff;
-    finalResultBox.appendChild(pre);
+    details.appendChild(pre);
+
+    finalResultBox.appendChild(details);
   }
 }
 
-
 confirmProjectButton.addEventListener("click", confirmProject);
 changeProjectButton.addEventListener("click", changeProject);
-scanProjectButton.onclick = loadSonarIssues;
+scanProjectButton.onclick = startAgentRun;
 
 renderWorkflow();
 renderControls();
