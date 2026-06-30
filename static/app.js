@@ -54,6 +54,7 @@ function setState(nextState, statusText) {
   renderWorkflow();
   renderControls();
 }
+
 function getStepStatus(index) {
   if (state === WorkflowState.ERROR) {
     return index === 0 ? "failed" : "locked";
@@ -96,6 +97,17 @@ function getStepStatus(index) {
   }
 
   return "locked";
+}
+
+function renderWorkflow() {
+  workflowSteps.innerHTML = "";
+
+  steps.forEach((step, index) => {
+    const div = document.createElement("div");
+    div.className = `step ${getStepStatus(index)}`;
+    div.textContent = `${index + 1}. ${step.label}`;
+    workflowSteps.appendChild(div);
+  });
 }
 
 function renderControls() {
