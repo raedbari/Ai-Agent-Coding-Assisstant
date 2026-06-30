@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.agent.api import router as agent_router
 from app.projects.registry import get_project, list_projects
 from app.security.sonar_client import fetch_demo_sonar_issues
 from app.security.sonar_github_apply import push_sonar_project_diff_to_github
@@ -16,7 +17,8 @@ app = FastAPI(
     title="AI Coding Assistant",
     version="0.1.0",
 )
-
+# Imports #
+app.include_router(agent_router)
 
 @app.middleware("http")
 async def disable_cache_for_frontend(request: Request, call_next):
