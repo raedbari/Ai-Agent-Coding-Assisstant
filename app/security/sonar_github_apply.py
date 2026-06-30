@@ -195,27 +195,6 @@ def _clone_repo(workspace: Path) -> Path:
     return repo_dir
 
 
-# def _try_apply_diff(repo_dir: Path, diff_text: str) -> tuple[bool, str]:
-#     check_result = _run_git(
-#         ["apply", "--check", "--recount", "--whitespace=nowarn", "-"],
-#         cwd=repo_dir,
-#         input_text=diff_text,
-#     )
-
-#     if check_result.returncode != 0:
-#         return False, check_result.stderr.strip() or "Patch check failed."
-
-#     apply_result = _run_git(
-#         ["apply", "--recount", "--whitespace=nowarn", "-"],
-#         cwd=repo_dir,
-#         input_text=diff_text,
-#     )
-
-#     if apply_result.returncode != 0:
-#         return False, apply_result.stderr.strip() or "Patch apply failed."
-
-#     return True, ""
-
 def _try_apply_diff(
     repo_dir: Path,
     diff_text: str,
@@ -339,7 +318,90 @@ def _apply_simple_line_replacement_fallback(
         "success": True,
         "message": f"Fallback applied {changed_count} simple replacement(s).",
     }
-    
+
+def validate_sonar_project_diff_for_github(
+    diff_text: str,
+    project_id: str,
+    project_path: Path,
+    project_root: Path,
+) -> dict:
+    raw_diff = strip_markdown_code_fence(diff_text)
+
+    if not raw_diff:
+        return {
+            "success": False,
+            "status": "empty_diff",
+            "message": "No diff was provided.",
+            "branch": os.getenv("GITHUB_BRANCH", "main"),
+            "applied_files": [],
+            "diff": "",
+        }
+
+    try:
+        normalized_diff = normalize_unified_diff_for_git_apply(raw_diff)
+
+        changed_files = _validate_diff_paths(
+            diff_text=normalized_diff,
+            project_root=project_root,
+            project_path=project_path,
+        )
+    except Exception as exc:
+        return {
+            "success": False,
+            "status": "invalid_diff_paths",
+            "message": str(exc),
+            "branch": os.getenv("GITHUB_BRANCH", "main"),
+            "applied_files": [],
+            "diff": raw_diff,
+        }
+
+    branch = os.getenv("GITHUB_BRANCH", "main")
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="ai-coding-validate-diff-") as temp_dir:
+            repo_dir = _clone_repo(Path(temp_dir))
+
+            check_result = _run_git(
+                [
+                    "apply",
+                    "--check",
+                    "--ignore-whitespace",
+                    "--recount",
+                    "--whitespace=nowarn",
+                    "-",
+                ],
+                cwd=repo_dir,
+                input_text=normalized_diff,
+            )
+
+            if check_result.returncode != 0:
+                return {
+                    "success": False,
+                    "status": "check_failed",
+                    "message": check_result.stderr.strip() or "Patch check failed.",
+                    "branch": branch,
+                    "applied_files": [],
+                    "diff": normalized_diff,
+                }
+
+            return {
+                "success": True,
+                "status": "valid",
+                "message": "Diff is applicable to the current GitHub repository.",
+                "branch": branch,
+                "applied_files": changed_files,
+                "diff": normalized_diff,
+            }
+
+    except Exception as exc:
+        return {
+            "success": False,
+            "status": "validation_failed",
+            "message": str(exc),
+            "branch": branch,
+            "applied_files": [],
+            "diff": normalized_diff,
+        } 
 
 def push_sonar_project_diff_to_github(
     diff_text: str,
