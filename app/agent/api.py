@@ -57,6 +57,27 @@ def _extract_interrupt_payload(result: Any) -> dict[str, Any] | None:
     return {"value": value}
 
 
+def _summarize_agent_output(result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {"result": str(result)}
+
+    fix = result.get("fix") or {}
+    apply_result = result.get("apply_result")
+
+    return {
+        "project_id": result.get("project_id"),
+        "approval_status": result.get("approval_status"),
+        "approval_payload": result.get("approval_payload"),
+        "fix": {
+            "summary": fix.get("summary"),
+            "risk": fix.get("risk"),
+            "changed_files": fix.get("changed_files", []),
+        } if isinstance(fix, dict) else None,
+        "apply_result": apply_result,
+        "error": result.get("error"),
+    }
+
+
 @router.post("/projects/{project_id}/start", response_model=AgentStartResponse)
 def start_agent_repair(project_id: str) -> AgentStartResponse:
     thread_id = str(uuid4())
@@ -87,7 +108,7 @@ def start_agent_repair(project_id: str) -> AgentStartResponse:
         thread_id=thread_id,
         status="completed",
         review_payload=None,
-        output=result if isinstance(result, dict) else {"result": str(result)},
+        output=_summarize_agent_output(result),
     )
 
 
@@ -121,5 +142,6 @@ def resume_agent_repair(
     return AgentResumeResponse(
         thread_id=thread_id,
         status="completed",
-        output=result if isinstance(result, dict) else {"result": str(result)},
+        output=_summarize_agent_output(result),
     )
+
