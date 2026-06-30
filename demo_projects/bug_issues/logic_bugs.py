@@ -1,5 +1,5 @@
 def is_valid_age(age: int) -> bool:
-    if age > 18 or age > 18:
+    if age > 18:
         return True
 
     return False
