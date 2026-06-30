@@ -195,26 +195,26 @@ def _clone_repo(workspace: Path) -> Path:
     return repo_dir
 
 
-def _try_apply_diff(repo_dir: Path, diff_text: str) -> tuple[bool, str]:
-    check_result = _run_git(
-        ["apply", "--check", "--recount", "--whitespace=nowarn", "-"],
-        cwd=repo_dir,
-        input_text=diff_text,
-    )
+# def _try_apply_diff(repo_dir: Path, diff_text: str) -> tuple[bool, str]:
+#     check_result = _run_git(
+#         ["apply", "--check", "--recount", "--whitespace=nowarn", "-"],
+#         cwd=repo_dir,
+#         input_text=diff_text,
+#     )
 
-    if check_result.returncode != 0:
-        return False, check_result.stderr.strip() or "Patch check failed."
+#     if check_result.returncode != 0:
+#         return False, check_result.stderr.strip() or "Patch check failed."
 
-    apply_result = _run_git(
-        ["apply", "--recount", "--whitespace=nowarn", "-"],
-        cwd=repo_dir,
-        input_text=diff_text,
-    )
+#     apply_result = _run_git(
+#         ["apply", "--recount", "--whitespace=nowarn", "-"],
+#         cwd=repo_dir,
+#         input_text=diff_text,
+#     )
 
-    if apply_result.returncode != 0:
-        return False, apply_result.stderr.strip() or "Patch apply failed."
+#     if apply_result.returncode != 0:
+#         return False, apply_result.stderr.strip() or "Patch apply failed."
 
-    return True, ""
+#     return True, ""
 
 def _try_apply_diff(
     repo_dir: Path,
