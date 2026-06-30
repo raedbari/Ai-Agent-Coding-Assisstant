@@ -439,6 +439,21 @@ function handleAgentStreamEvent(event) {
 }
 
 function renderNodeUpdate(data) {
+  if (data.selected_issues_count === 0) {
+    issuesBox.innerHTML = "";
+    issuesBox.className = "box success";
+
+    const title = createElement("h3", "", "No selected issues");
+    issuesBox.appendChild(title);
+
+    const message = createElement(
+      "p",
+      "",
+      "The agent checked this project and found no actionable SonarQube issues."
+    );
+    issuesBox.appendChild(message);
+  }
+
   if (Array.isArray(data.selected_issues) && data.selected_issues.length) {
     renderSelectedIssues(data.selected_issues);
   }
@@ -698,6 +713,63 @@ async function resumeAgentRunWithoutStreaming(approved, reason) {
   }
 }
 
+function renderNoActionableIssues() {
+  issuesBox.innerHTML = "";
+  issuesBox.className = "box success";
+
+  const issuesTitle = createElement("h3", "", "No actionable issues");
+  issuesBox.appendChild(issuesTitle);
+
+  const issuesMessage = createElement(
+    "p",
+    "",
+    "The agent did not find SonarQube issues that match this selected project or require a repair."
+  );
+  issuesBox.appendChild(issuesMessage);
+
+  repairPlanBox.innerHTML = "";
+  repairPlanBox.className = "box muted";
+
+  const repairTitle = createElement("h3", "", "Repair skipped");
+  repairPlanBox.appendChild(repairTitle);
+
+  const repairMessage = createElement(
+    "p",
+    "",
+    "No repair summary was generated because there were no actionable issues."
+  );
+  repairPlanBox.appendChild(repairMessage);
+
+  diffBox.innerHTML = "";
+  diffBox.className = "box muted";
+
+  const diffTitle = createElement("h3", "", "Human review not required");
+  diffBox.appendChild(diffTitle);
+
+  const diffMessage = createElement(
+    "p",
+    "",
+    "No diff was generated, so there is nothing to approve or reject."
+  );
+  diffBox.appendChild(diffMessage);
+
+  finalResultBox.innerHTML = "";
+  finalResultBox.className = "box success";
+
+  const finalTitle = createElement("h3", "", "No actionable issues");
+  finalResultBox.appendChild(finalTitle);
+
+  const finalMessage = createElement(
+    "p",
+    "",
+    "The agent did not find actionable SonarQube issues for this project."
+  );
+  finalResultBox.appendChild(finalMessage);
+
+  setState(WorkflowState.NO_ACTIONABLE_ISSUES, "No actionable issues");
+  addLog("No actionable issues found.");
+}
+
 function renderCompletedOutput(output) {
   currentAgentOutput = output || {};
 
@@ -738,27 +810,13 @@ function renderCompletedOutput(output) {
     return;
   }
 
-  const fix = output.fix || {};
-  const changedFiles = Array.isArray(fix.changed_files) ? fix.changed_files : [];
+ const fix = output.fix || {};
+ const changedFiles = Array.isArray(fix.changed_files) ? fix.changed_files : [];
 
-  if (!fix.summary && !changedFiles.length) {
-    finalResultBox.innerHTML = "";
-    finalResultBox.className = "box success";
-
-    const title = createElement("h3", "", "No actionable issues");
-    finalResultBox.appendChild(title);
-
-    const message = createElement(
-      "p",
-      "",
-      "The agent did not find actionable SonarQube issues for this project."
-    );
-    finalResultBox.appendChild(message);
-
-    setState(WorkflowState.NO_ACTIONABLE_ISSUES, "No actionable issues");
-    addLog("No actionable issues found.");
-    return;
-  }
+if (!fix.summary && !changedFiles.length) {
+  renderNoActionableIssues();
+  return;
+}
 
   finalResultBox.innerHTML = "";
   finalResultBox.className = "box success";
