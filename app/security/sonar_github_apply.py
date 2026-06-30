@@ -221,14 +221,14 @@ def _try_apply_diff(
     diff_text: str,
 ) -> tuple[bool, str]:
     check_result = _run_git(
-        ["apply", "--check", "--recount", "--whitespace=nowarn", "-"],
+        ["apply", "--check", "--ignore-whitespace", "--recount", "--whitespace=nowarn", "-"],
         cwd=repo_dir,
         input_text=diff_text,
     )
 
     if check_result.returncode == 0:
         apply_result = _run_git(
-            ["apply", "--recount", "--whitespace=nowarn", "-"],
+            ["apply", "--ignore-whitespace", "--recount", "--whitespace=nowarn", "-"],
             cwd=repo_dir,
             input_text=diff_text,
         )
