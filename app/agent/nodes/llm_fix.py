@@ -40,6 +40,9 @@ Rules:
 - The diff must be a valid unified diff.
 - Do not wrap JSON in Markdown fences.
 - Do not add prose outside JSON.
+- For python:S125 commented-out code, the diff must remove the complete commented-out code block, not only selected lines.
+- A valid S125 fix must not leave behind commented indented body lines such as "#     connection = ..." after deleting "# def ...".
+- Prefer one coherent hunk that removes the whole dead commented block.
 """
 
 
